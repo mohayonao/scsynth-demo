@@ -156,6 +156,9 @@ window.addEventListener("DOMContentLoaded", function () {
     player.stop();
   }
 
+  var scView = window.document.getElementById("sc-view");
+  var jsView = window.document.getElementById("js-view");
+
   function fetchSynthDef(name) {
     Promise.all([window.fetch("synthdef/" + name + ".sc").then(function (res) {
       return res.text();
@@ -167,8 +170,10 @@ window.addEventListener("DOMContentLoaded", function () {
       var sc = _ref2[0];
       var json = _ref2[1];
 
-      window.document.getElementById("sc-view").textContent = sc.replace(/\t/g, "  ");
-      window.document.getElementById("json-view").textContent = json;
+      scView.className = "prettyprint";
+      jsView.className = "prettyprint";
+      scView.textContent = sc.replace(/\t/g, "  ");
+      jsView.textContent = json;
       window.prettyPrint();
       player.setSynthDef(JSON.parse(json));
     });

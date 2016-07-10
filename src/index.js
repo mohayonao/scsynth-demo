@@ -125,13 +125,18 @@ window.addEventListener("DOMContentLoaded", () => {
     player.stop();
   }
 
+  const scView = window.document.getElementById("sc-view");
+  const jsView = window.document.getElementById("js-view");
+
   function fetchSynthDef(name) {
     Promise.all([
       window.fetch(`synthdef/${ name }.sc`).then(res => res.text()),
       window.fetch(`synthdef/${ name }.json`).then(res => res.text())
     ]).then(([ sc, json ]) => {
-      window.document.getElementById("sc-view").textContent = sc.replace(/\t/g, "  ");
-      window.document.getElementById("json-view").textContent = json;
+      scView.className = "prettyprint";
+      jsView.className = "prettyprint";
+      scView.textContent = sc.replace(/\t/g, "  ");
+      jsView.textContent = json;
       window.prettyPrint();
       player.setSynthDef(JSON.parse(json));
     });
