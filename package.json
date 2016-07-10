@@ -1,0 +1,22 @@
+{
+  "name": "@mohayonao/scsynth-demo",
+  "description": "scsynth demo",
+  "version": "0.0.0",
+  "author": "Nao Yonamine <mohayonao@gmail.com>",
+  "bugs": {
+    "url": "https://github.com/mohayonao/scsynth-demo/issues"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "engines": {
+    "node": ">= 4.0.0"
+  },
+  "license": "MIT",
+  "main": "index.js",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mohayonao/scsynth-demo.git"
+  },
+  "scripts": {}
+}
