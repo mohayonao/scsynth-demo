@@ -1,7 +1,6 @@
 "use strict";
 
 const window = global;
-const Vue = require("vue");
 const AudioContext = window.AudioContext || window.webkitAudioContext;
 
 const BUFFER_SLOTS = 16;
@@ -82,7 +81,7 @@ class WorkerPlayer {
 window.addEventListener("DOMContentLoaded", () => {
   const player = new WorkerPlayer(new window.Worker("worker-bundle.js"));
 
-  const app = new Vue({
+  const app = new window.Vue({
     el: "#app",
     data: {
       selected: "",
@@ -131,8 +130,9 @@ window.addEventListener("DOMContentLoaded", () => {
       window.fetch(`synthdef/${ name }.sc`).then(res => res.text()),
       window.fetch(`synthdef/${ name }.json`).then(res => res.text())
     ]).then(([ sc, json ]) => {
-      app.sc = sc.replace(/\t/g, "  ");
-      app.json = json;
+      window.document.getElementById("sc-view").textContent = sc.replace(/\t/g, "  ");
+      window.document.getElementById("json-view").textContent = json;
+      window.prettyPrint();
       player.setSynthDef(JSON.parse(json));
     });
   }

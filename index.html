@@ -4,9 +4,10 @@
   <meta charset="utf-8">
   <title>scsynth demo</title>
   <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.2.0/css/bootstrap.min.css">
+  <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/prettify/r298/prettify.min.css"></link>
   <style>
-    textarea { height: 300px !important; font-size: 12px !important; font-family: "Courier", monospace }
     button { width: 120px }
+    .prettyprint { display: block: width: 100%; background: none; border: none !important; }
   </style>
 </head>
 <body>
@@ -43,15 +44,13 @@
         </div>
       </div>
     </div>
-    <div class="row">
-      <div class="col-md-6">
-        <textarea v-model="sc" class="form-control"></textarea>
-      </div>
-      <div class="col-md-6">
-        <textarea v-model="json" class="form-control"></textarea>
-      </div>
-    </div>
   </div>
+  <div class="container-fluid">
+    <pre id="sc-view" class="prettyprint lang-ruby"></pre>
+    <pre id="json-view" class="prettyprint lang-json"></pre>
+  </div>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/vue/1.0.26/vue.min.js"></script>
+  <script src="//cdnjs.cloudflare.com/ajax/libs/prettify/r298/prettify.min.js"></script>
   <script src="bundle.js"></script>
 </body>
 </html>

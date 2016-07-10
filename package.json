@@ -7,10 +7,10 @@
     "url": "https://github.com/mohayonao/scsynth-demo/issues"
   },
   "dependencies": {
+    "lodash.flattendeep": "^4.2.0",
     "scsynth": "0.0.1",
     "setimmediate": "^1.0.4",
-    "synthdef-decoder": "^0.3.0",
-    "vue": "^1.0.26"
+    "synthdef-decoder": "^0.3.0"
   },
   "devDependencies": {
     "babel-preset-es2015": "^6.9.0",
