@@ -7,7 +7,13 @@
     "url": "https://github.com/mohayonao/scsynth-demo/issues"
   },
   "dependencies": {},
-  "devDependencies": {},
+  "devDependencies": {
+    "babel-preset-es2015": "^6.9.0",
+    "babelify": "^7.3.0",
+    "eslint": "^3.0.1",
+    "npm-run-all": "^2.3.0",
+    "watchify": "^3.7.0"
+  },
   "engines": {
     "node": ">= 4.0.0"
   },
@@ -18,5 +24,10 @@
     "type": "git",
     "url": "https://github.com/mohayonao/scsynth-demo.git"
   },
-  "scripts": {}
+  "scripts": {
+    "lint": "eslint src",
+    "watch": "npm-run-all -p watch:*",
+    "watch:dj": "watchify src/index.js -o bundle.js -v -t babelify",
+    "watch:vote": "watchify src/worker.js -o worker-bundle.js -v -t babelify"
+  }
 }
