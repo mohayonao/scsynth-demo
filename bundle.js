@@ -1,0 +1,1 @@
+console.error("Error: Cannot find module '/Users/yona/src/github.com/mohayonao/scsynth-demo/src/index.js' from '/Users/yona/src/github.com/mohayonao/scsynth-demo'");

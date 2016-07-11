@@ -15673,9 +15673,9 @@ function recvMessage(data) {
       context.addToTail(synth);
     }
     if (data.type === "param" && synth) {
-      if (data.value.length <= synth.params.length) {
-        synth.params.set(data.value);
-      }
+      var values = Array.prototype.slice.call(data.value, 0, synth.params.length);
+
+      synth.params.set(values);
     }
   }
 }
