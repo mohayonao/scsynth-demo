@@ -14,7 +14,7 @@ var window = global;
 var AudioContext = window.AudioContext || window.webkitAudioContext;
 
 var BUFFER_SLOTS = 16;
-var BLOCK_SIZE = 256;
+var BUFFER_LENGTH = 512;
 
 var WorkerPlayer = function () {
   function WorkerPlayer(worker) {
@@ -35,7 +35,7 @@ var WorkerPlayer = function () {
       type: "init",
       value: {
         sampleRate: this.audioContext.sampleRate,
-        blockSize: BLOCK_SIZE,
+        bufferLength: BUFFER_LENGTH,
         bufferSlots: BUFFER_SLOTS
       }
     });
@@ -64,7 +64,7 @@ var WorkerPlayer = function () {
       if (this.scp) {
         this.scp.disconnect();
       }
-      this.scp = this.audioContext.createScriptProcessor(256, 2, 2);
+      this.scp = this.audioContext.createScriptProcessor(BUFFER_LENGTH, 2, 2);
       this.scp.onaudioprocess = function (e) {
         var buffer = _this2.buffers[_this2.rIndex];
 
@@ -72,10 +72,10 @@ var WorkerPlayer = function () {
           return;
         }
 
-        e.outputBuffer.getChannelData(0).set(buffer.subarray(0, BLOCK_SIZE));
-        e.outputBuffer.getChannelData(1).set(buffer.subarray(BLOCK_SIZE));
+        e.outputBuffer.getChannelData(0).set(buffer.subarray(0, BUFFER_LENGTH));
+        e.outputBuffer.getChannelData(1).set(buffer.subarray(BUFFER_LENGTH));
 
-        _this2.worker.postMessage(_this2.buffers[_this2.rIndex], [_this2.buffers[_this2.rIndex].buffer]);
+        _this2.worker.postMessage(buffer, [buffer.buffer]);
         _this2.buffers[_this2.rIndex] = null;
         _this2.rIndex = (_this2.rIndex + 1) % _this2.buffers.length;
       };

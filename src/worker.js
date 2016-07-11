@@ -20,10 +20,18 @@ function loop() {
     return;
   }
   if (buffers[rIndex]) {
-    context.process();
-    buffers[rIndex].set(context.outputs[0], 0);
-    buffers[rIndex].set(context.outputs[1], context.outputs[0].length);
-    global.postMessage(buffers[rIndex], [ buffers[rIndex].buffer ]);
+    const buffer = buffers[rIndex];
+    const blockSize = context.blockSize;
+    const bufferLength = buffer.length / 2;
+    const imax = bufferLength / blockSize;
+
+    for (let i = 0; i < imax; i++) {
+      context.process();
+      buffer.set(context.outputs[0], blockSize * i);
+      buffer.set(context.outputs[1], blockSize * i + bufferLength);
+    }
+
+    global.postMessage(buffer, [ buffer.buffer ]);
     buffers[rIndex] = null;
     rIndex = (rIndex + 1) % buffers.length;
   }
@@ -37,9 +45,9 @@ function recvMessage(data) {
     return;
   }
   if (data.type === "init" && context === null) {
-    context = new scsynth.SCContext(data.value);
+    context = new scsynth.SCContext({ sampleRate: data.value.sampleRate });
     buffers = Array.from({ length: data.value.bufferSlots }, () => {
-      return new Float32Array(data.value.blockSize * 2);
+      return new Float32Array(data.value.bufferLength * 2);
     });
   }
   if (context) {
@@ -58,7 +66,9 @@ function recvMessage(data) {
       context.addToTail(synth);
     }
     if (data.type === "param" && synth) {
-      synth.params.set(data.value);
+      if (data.value.length <= synth.params.length) {
+        synth.params.set(data.value);
+      }
     }
   }
 }

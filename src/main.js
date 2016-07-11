@@ -4,7 +4,7 @@ const window = global;
 const AudioContext = window.AudioContext || window.webkitAudioContext;
 
 const BUFFER_SLOTS = 16;
-const BLOCK_SIZE = 256;
+const BUFFER_LENGTH = 512;
 
 class WorkerPlayer {
   constructor(worker) {
@@ -19,7 +19,7 @@ class WorkerPlayer {
       type: "init",
       value: {
         sampleRate: this.audioContext.sampleRate,
-        blockSize: BLOCK_SIZE,
+        bufferLength: BUFFER_LENGTH,
         bufferSlots: BUFFER_SLOTS
       }
     });
@@ -41,7 +41,7 @@ class WorkerPlayer {
     if (this.scp) {
       this.scp.disconnect();
     }
-    this.scp = this.audioContext.createScriptProcessor(256, 2, 2);
+    this.scp = this.audioContext.createScriptProcessor(BUFFER_LENGTH, 2, 2);
     this.scp.onaudioprocess = (e) => {
       const buffer = this.buffers[this.rIndex];
 
@@ -49,10 +49,10 @@ class WorkerPlayer {
         return;
       }
 
-      e.outputBuffer.getChannelData(0).set(buffer.subarray(0, BLOCK_SIZE));
-      e.outputBuffer.getChannelData(1).set(buffer.subarray(BLOCK_SIZE));
+      e.outputBuffer.getChannelData(0).set(buffer.subarray(0, BUFFER_LENGTH));
+      e.outputBuffer.getChannelData(1).set(buffer.subarray(BUFFER_LENGTH));
 
-      this.worker.postMessage(this.buffers[this.rIndex], [ this.buffers[this.rIndex].buffer ]);
+      this.worker.postMessage(buffer, [ buffer.buffer ]);
       this.buffers[this.rIndex] = null;
       this.rIndex = (this.rIndex + 1) % this.buffers.length;
     };
