@@ -974,12 +974,10 @@ var SCSynth = function (_SCGraphNode) {
   }, {
     key: "dspProcess",
     value: function dspProcess() {
-      var unitList = this.unitList;
+      var dspUnitList = this.dspUnitList;
 
-      this.buffer.fill(0);
-
-      for (var i = 0, imax = unitList.length; i < imax; i++) {
-        unitList[i].dspProcess(unitList[i].bufferLength);
+      for (var i = 0, imax = dspUnitList.length; i < imax; i++) {
+        dspUnitList[i].dspProcess(dspUnitList[i].bufferLength);
       }
     }
   }]);
@@ -1021,11 +1019,13 @@ var SCSynthBuilder = function () {
       }, 0);
       var buffer = new Float32Array(bufferLength);
       var unitList = [];
+      var dspUnitList = [];
 
       synthInstance.consts = consts;
       synthInstance.params = params;
       synthInstance.buffer = buffer;
       synthInstance.unitList = unitList;
+      synthInstance.dspUnitList = dspUnitList;
 
       var specs = synthdef.specs;
       var bufferOffset = 0;
@@ -1063,10 +1063,10 @@ var SCSynthBuilder = function () {
         unit.bufferLength = rate.bufferLength;
         unit.initialize(rate);
 
+        unitList[i] = unit;
+
         if (unit.dspProcess && unit.calcRate !== C.RATE_DEMAND) {
-          unitList[i] = unit;
-        } else {
-          unitList[i] = null;
+          dspUnitList.push(unit);
         }
       }
 
@@ -2934,8 +2934,8 @@ dspProcess["kk"] = function (inNumSamples) {
   var decaytime = this.inputs[3][0];
   var dlybuf = this._dlybuf;
   var mask = this._mask;
-  var frac = dsamp - (dsamp | 0);
   var dsamp = this._dsamp;
+  var frac = dsamp - (dsamp | 0);
   var feedbk = this._feedbk;
   var iwrphase = this._iwrphase;
   var irdphase = void 0;
@@ -2977,7 +2977,7 @@ dspProcess["kk"] = function (inNumSamples) {
     var _nextFeedbk = delay.feedback(delaytime, decaytime);
     var _feedbkSlope = (_nextFeedbk - feedbk) * this._slopeFactor;
     for (var _i2 = 0; _i2 < inNumSamples; _i2++) {
-      irdphase = iwrphase - (dsamp | 0);
+      irdphase = iwrphase - (dsamp + dsampSlope * _i2 | 0);
       var _d5 = dlybuf[irdphase + 1 & mask];
       var _d6 = dlybuf[irdphase & mask];
       var _d7 = dlybuf[irdphase - 1 & mask];
@@ -2985,7 +2985,6 @@ dspProcess["kk"] = function (inNumSamples) {
       var _value2 = cubicinterp(frac, _d5, _d6, _d7, _d8) || 0;
       dlybuf[iwrphase & mask] = inIn[_i2] + feedbk * _value2 || 0;
       out[_i2] = _value2;
-      dsamp += dsampSlope;
       feedbk += _feedbkSlope;
       irdphase++;
       iwrphase++;
@@ -3055,8 +3054,8 @@ dspProcess["kk"] = function (inNumSamples) {
   var decaytime = this.inputs[3][0];
   var dlybuf = this._dlybuf;
   var mask = this._mask;
-  var frac = dsamp - (dsamp | 0);
   var dsamp = this._dsamp;
+  var frac = dsamp - (dsamp | 0);
   var feedbk = this._feedbk;
   var iwrphase = this._iwrphase;
   var irdphase = void 0;
@@ -3094,13 +3093,12 @@ dspProcess["kk"] = function (inNumSamples) {
     var _nextFeedbk = delay.feedback(delaytime, decaytime);
     var _feedbkSlope = (_nextFeedbk - feedbk) * this._slopeFactor;
     for (var _i2 = 0; _i2 < inNumSamples; _i2++) {
-      irdphase = iwrphase - (dsamp | 0);
+      irdphase = iwrphase - (dsamp + dsampSlope * _i2 | 0);
       var _d3 = dlybuf[irdphase & mask];
       var _d4 = dlybuf[irdphase - 1 & mask];
       var _value2 = _d3 + frac * (_d4 - _d3) || 0;
       dlybuf[iwrphase & mask] = inIn[_i2] + feedbk * _value2 || 0;
       out[_i2] = _value2;
-      dsamp += dsampSlope;
       feedbk += _feedbkSlope;
       irdphase++;
       iwrphase++;
@@ -3433,6 +3431,7 @@ var SCUnitDC = function (_SCUnit) {
 }(SCUnit);
 
 SCUnitRepository.registerSCUnitClass("DC", SCUnitDC);
+
 module.exports = SCUnitDC;
 },{"../SCUnit":12,"../SCUnitRepository":13}],38:[function(require,module,exports){
 "use strict";
@@ -10055,23 +10054,30 @@ dspProcess["a"] = function (inNumSamples) {
   var inputs = this.inputs;
   var buses = this._buses;
   var firstBusChannel = (inputs[0][0] | 0) - 1;
+
   for (var i = 1, imax = inputs.length; i < imax; i++) {
     var bus = buses[firstBusChannel + i];
     var _in = inputs[i];
-    for (var j = 0; j < inNumSamples; j++) {
+    var nsmps = Math.min(_in.length, inNumSamples);
+
+    for (var j = 0; j < nsmps; j++) {
       bus[j] += _in[j];
     }
   }
 };
+
 dspProcess["k"] = function () {
   var inputs = this.inputs;
   var buses = this._buses;
   var offset = (inputs[0][0] | 0) - 1;
+
   for (var i = 1, imax = inputs.length; i < imax; i++) {
     buses[offset + i][0] += inputs[i][0];
   }
 };
+
 SCUnitRepository.registerSCUnitClass("Out", SCUnitOut);
+
 module.exports = SCUnitOut;
 },{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],113:[function(require,module,exports){
 "use strict";
@@ -15280,7 +15286,10 @@ function fold(val, lo, hi) {
 
   var range1 = hi - lo;
   var range2 = range1 * 2;
-  var x = val - lo - range2 * Math.floor(x / range2);
+
+  var x = val - lo;
+
+  x -= range2 * Math.floor(x / range2);
 
   if (x >= range1) {
     return range2 - x + lo;
