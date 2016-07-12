@@ -1795,7 +1795,7 @@ var SynthDefDecoder2 = function () {
         return _this.readParamItems();
       }), numberOfParamValues);
       var numberOfUGenSpecs = this.readNumberOfUGenSpecs();
-      var specs = nmap(numberOfUGenSpecs, function () {
+      var units = nmap(numberOfUGenSpecs, function () {
         return _this.readUGenSpec();
       });
       var numberOfVariants = this.readNumberOfVariants();
@@ -1803,7 +1803,7 @@ var SynthDefDecoder2 = function () {
         return _this.readVariantSpec(numberOfParamValues);
       }));
 
-      return { name: name, consts: consts, paramValues: paramValues, paramIndices: paramIndices, specs: specs, variants: variants };
+      return { name: name, consts: consts, paramValues: paramValues, paramIndices: paramIndices, units: units, variants: variants };
     }
   }, {
     key: "readParamItems",
@@ -2020,7 +2020,7 @@ var unzip = require("lodash.unzip");
 var zip = require("lodash.zip");
 
 function format(synthdef) {
-  return ("\n{\n  \"name\": \"" + synthdef.name + "\",\n  \"consts\": " + formatConsts(synthdef.consts) + ",\n  \"paramValues\": " + formatParamValues(synthdef.paramValues) + ",\n  \"paramIndices\": " + formatParamIndices(synthdef.paramIndices) + ",\n  \"specs\": " + formatSpec(synthdef.specs) + ",\n  \"variants\": " + formatVariants(synthdef.variants) + "\n}").trim();
+  return ("\n{\n  \"name\": \"" + synthdef.name + "\",\n  \"consts\": " + formatConsts(synthdef.consts) + ",\n  \"paramValues\": " + formatParamValues(synthdef.paramValues) + ",\n  \"paramIndices\": " + formatParamIndices(synthdef.paramIndices) + ",\n  \"units\": " + formatUnits(synthdef.units) + ",\n  \"variants\": " + formatVariants(synthdef.variants) + "\n}").trim();
 }
 
 function spc(n) {
@@ -2120,15 +2120,15 @@ function formatParamIndices(paramIndices) {
   }).join(",\n") + "\n  }";
 }
 
-function formatSpec(specs) {
-  if (specs.length === 0) {
+function formatUnits(units) {
+  if (units.length === 0) {
     return "[]";
   }
 
   var fmt = function fmt(values) {
     return JSON.parse(JSON.stringify(unzip(values)).replace(/null/g, "[]"));
   };
-  var unzipped = unzip(specs);
+  var unzipped = unzip(units);
   var zipped = zip(alignR(unzipped[0].map(toS)), alignL(unzipped[1].map(toS)), alignL(unzipped[2].map(toS)), zip.apply(undefined, _toConsumableArray(fmt(unzipped[3]).map(alignN))).map(toAS).map(clean2), alignN(unzipped[4]));
 
   return "[\n" + zipped.map(function (values) {
@@ -2207,8 +2207,8 @@ var AudioDriver = function () {
       }
     }
   }, {
-    key: "start",
-    value: function start() {
+    key: "play",
+    value: function play() {
       var _this2 = this;
 
       this.buffers.forEach(function (buffer) {
@@ -2233,7 +2233,19 @@ var AudioDriver = function () {
         _this2.rIndex = (_this2.rIndex + 1) % _this2.buffers.length;
       };
       this.scp.connect(this.audioContext.destination);
-      this.worker.postMessage({ type: "start" });
+      this.worker.postMessage({ type: "play" });
+    }
+  }, {
+    key: "pause",
+    value: function pause() {
+      this.buffers.forEach(function (buffer) {
+        return buffer && buffer.fill(0);
+      });
+      if (this.scp) {
+        this.scp.disconnect();
+        this.scp = null;
+      }
+      this.worker.postMessage({ type: "pause" });
     }
   }, {
     key: "stop",
@@ -2298,32 +2310,25 @@ window.addEventListener("DOMContentLoaded", function () {
         fetchSynthDef(this.selected);
       },
       changeParam: function changeParam() {
-        player.setParam(this.param1, this.param2);
+        player.setParam(this.param1 / 128, this.param2 / 128);
       },
-      start: function start() {
+      play: function play() {
         if (this.isPlaying) {
           return;
         }
         this.isPlaying = true;
-        _start();
+        player.play();
+      },
+      pause: function pause() {
+        this.isPlaying = false;
+        player.pause();
       },
       stop: function stop() {
-        if (!this.isPlaying) {
-          return;
-        }
         this.isPlaying = false;
-        _stop();
+        player.stop();
       }
     }
   });
-
-  function _start() {
-    player.start();
-  }
-
-  function _stop() {
-    player.stop();
-  }
 
   var scView = window.document.getElementById("sc-view");
   var jsView = window.document.getElementById("js-view");

@@ -35,7 +35,7 @@ class AudioDriver {
     }
   }
 
-  start() {
+  play() {
     this.buffers.forEach(buffer => buffer && buffer.fill(0));
     if (this.scp) {
       this.scp.disconnect();
@@ -56,7 +56,16 @@ class AudioDriver {
       this.rIndex = (this.rIndex + 1) % this.buffers.length;
     };
     this.scp.connect(this.audioContext.destination);
-    this.worker.postMessage({ type: "start" });
+    this.worker.postMessage({ type: "play" });
+  }
+
+  pause() {
+    this.buffers.forEach(buffer => buffer && buffer.fill(0));
+    if (this.scp) {
+      this.scp.disconnect();
+      this.scp = null;
+    }
+    this.worker.postMessage({ type: "pause" });
   }
 
   stop() {

@@ -9,6 +9,7 @@ let synth = null;
 let buffers = null;
 let rIndex = 0;
 let wIndex = 0;
+let synthdef = null;
 let running = false;
 
 global.onmessage = (e) => {
@@ -51,19 +52,30 @@ function recvMessage(data) {
     });
   }
   if (context) {
-    if (data.type === "start") {
+    if (data.type === "play") {
       running = true;
+      if (synth === null) {
+        synth = context.createSynth(synthdef);
+        context.addToTail(synth);
+      }
       loop();
+    }
+    if (data.type === "pause") {
+      running = false;
     }
     if (data.type === "stop") {
       running = false;
+      if (synth) {
+        synth.close();
+      }
+      synth = null;
     }
     if (data.type === "synthdef") {
       if (synth) {
-        synth.end();
+        synth.close();
       }
-      synth = context.createSynth(data.value);
-      context.addToTail(synth);
+      synthdef = data.value;
+      synth = null;
     }
     if (data.type === "param" && synth) {
       const values = Array.prototype.slice.call(data.value, 0, synth.params.length);

@@ -7,10 +7,10 @@
     "url": "https://github.com/mohayonao/scsynth-demo/issues"
   },
   "dependencies": {
-    "scsynth": "0.0.2",
+    "scsynth": "0.0.4",
     "setimmediate": "^1.0.4",
-    "synthdef-decoder": "^0.3.0",
-    "synthdef-json-formatter": "^0.1.1"
+    "synthdef-decoder": "^0.4.0",
+    "synthdef-json-formatter": "^0.2.0"
   },
   "devDependencies": {
     "babel-preset-es2015": "^6.9.0",

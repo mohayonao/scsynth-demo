@@ -25,32 +25,25 @@ window.addEventListener("DOMContentLoaded", () => {
         fetchSynthDef(this.selected);
       },
       changeParam() {
-        player.setParam(this.param1, this.param2);
+        player.setParam(this.param1 / 128, this.param2 / 128);
       },
-      start() {
+      play() {
         if (this.isPlaying) {
           return;
         }
         this.isPlaying = true;
-        start();
+        player.play();
+      },
+      pause() {
+        this.isPlaying = false;
+        player.pause();
       },
       stop() {
-        if (!this.isPlaying) {
-          return;
-        }
         this.isPlaying = false;
-        stop();
+        player.stop();
       }
     }
   });
-
-  function start() {
-    player.start();
-  }
-
-  function stop() {
-    player.stop();
-  }
 
   const scView = window.document.getElementById("sc-view");
   const jsView = window.document.getElementById("js-view");

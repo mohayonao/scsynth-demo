@@ -42,8 +42,9 @@
       <div class="form-group">
         <label class="col-sm-2 control-label"></label>
         <div class="col-sm-10">
-          <button @click="start" class="btn {{ isPlaying ? 'btn-success' : 'btn-default' }}">Play</button>
-          <button @click="stop" class="btn btn-default">Pause</button>
+          <button @click="play" class="btn {{ isPlaying ? 'btn-success' : 'btn-default' }}">Play</button>
+          <button @click="pause" class="btn btn-default">Pause</button>
+          <button @click="stop" class="btn btn-default">Stop</button>
         </div>
       </div>
     </div>

@@ -504,6 +504,7 @@ var SCContext = function () {
     });
 
     this.root = new SCGraphNode();
+    this.root.parent = this; // state hacking
     this.aRate = new SCRate(this.sampleRate, this.blockSize);
     this.kRate = new SCRate(this.sampleRate / this.blockSize, 1);
   }
@@ -522,13 +523,11 @@ var SCContext = function () {
     key: "addToHead",
     value: function addToHead(node) {
       this.root.addToHead(node);
-      return node;
     }
   }, {
     key: "addToTail",
     value: function addToTail(node) {
       this.root.addToTail(node);
-      return node;
     }
   }, {
     key: "process",
@@ -569,14 +568,28 @@ var SCGraphNode = function (_events$EventEmitter) {
     _this.next = null;
     _this.head = null;
     _this.tail = null;
-    _this.running = true;
+
+    _this._running = true;
     return _this;
   }
 
   _createClass(SCGraphNode, [{
-    key: "run",
-    value: function run(flag) {
-      this.running = !!flag;
+    key: "start",
+    value: function start() {
+      if (!this._running) {
+        this._running = true;
+        this.emit("statechange");
+      }
+      return this;
+    }
+  }, {
+    key: "stop",
+    value: function stop() {
+      if (this._running) {
+        this._running = false;
+        this.emit("statechange");
+      }
+      return this;
     }
   }, {
     key: "addToHead",
@@ -593,6 +606,7 @@ var SCGraphNode = function (_events$EventEmitter) {
       } else {
         this.head = this.tail = node;
       }
+      node.emit("statechange");
     }
   }, {
     key: "addToTail",
@@ -609,6 +623,7 @@ var SCGraphNode = function (_events$EventEmitter) {
       } else {
         this.head = this.tail = node;
       }
+      node.emit("statechange");
     }
   }, {
     key: "addBefore",
@@ -625,6 +640,7 @@ var SCGraphNode = function (_events$EventEmitter) {
         node.parent.head = node;
       }
       this.prev = node;
+      node.emit("statechange");
     }
   }, {
     key: "addAfter",
@@ -641,36 +657,17 @@ var SCGraphNode = function (_events$EventEmitter) {
         node.parent.tail = node;
       }
       this.next = node;
+      node.emit("statechange");
     }
   }, {
     key: "replace",
     value: function replace(node) {
-      node.parent = this.parent;
-      node.prev = this.prev;
-      node.next = this.next;
-      node.head = this.head;
-      node.tail = this.tail;
-      if (this.prev) {
-        this.prev.next = node;
-      }
-      if (this.next) {
-        this.next.prev = node;
-      }
-      if (node.parent) {
-        if (node.parent.head === this) {
-          node.parent.head = node;
-        }
-        if (node.parent.tail === this) {
-          node.parent.tail = node;
-        }
-      }
-      this.parent = null;
-      this.prev = null;
-      this.next = null;
+      node.addAfter(this);
+      node.close();
     }
   }, {
-    key: "end",
-    value: function end() {
+    key: "close",
+    value: function close() {
       if (this.prev) {
         this.prev.next = this.next;
       }
@@ -690,29 +687,30 @@ var SCGraphNode = function (_events$EventEmitter) {
       this.next = null;
       this.head = null;
       this.tail = null;
-      this.running = false;
+
+      this.emit("statechange");
     }
   }, {
-    key: "endAll",
-    value: function endAll() {
+    key: "closeAll",
+    value: function closeAll() {
       var node = this.head;
       while (node) {
         var next = node.next;
-        node.end();
+        node.close();
         node = next;
       }
-      this.end();
+      this.close();
     }
   }, {
-    key: "endDeep",
-    value: function endDeep() {
+    key: "closeDeep",
+    value: function closeDeep() {
       var node = this.head;
       while (node) {
         var next = node.next;
-        node.endDeep();
+        node.closeDeep();
         node = next;
       }
-      this.end();
+      this.close();
     }
   }, {
     key: "doneAction",
@@ -724,7 +722,7 @@ var SCGraphNode = function (_events$EventEmitter) {
   }, {
     key: "process",
     value: function process(inNumSamples) {
-      if (this.running) {
+      if (this._running) {
         if (this.head) {
           this.head.process(inNumSamples);
         }
@@ -735,6 +733,11 @@ var SCGraphNode = function (_events$EventEmitter) {
       if (this.next) {
         this.next.process(inNumSamples);
       }
+    }
+  }, {
+    key: "state",
+    get: function get() {
+      return this.parent !== null ? this._running ? "running" : "suspended" : "closed";
     }
   }]);
 
@@ -752,44 +755,44 @@ doneAction[0] = null;
 
 // pause the enclosing synth, but do not free it
 doneAction[1] = function (node) {
-  node.run(false);
+  node.stop();
 };
 
 // free the enclosing synth
 doneAction[2] = function (node) {
-  node.end();
+  node.close();
 };
 
 // free both this synth and the preceding node
 doneAction[3] = function (node) {
   if (node.prev) {
-    node.prev.end();
+    node.prev.close();
   }
-  node.end();
+  node.close();
 };
 
 // free both this synth and the following node
 doneAction[4] = function (node) {
   if (node.next) {
-    node.next.end();
+    node.next.close();
   }
-  node.end();
+  node.close();
 };
 
 // free this synth; if the preceding node is a group then do g_freeAll on it, else free it
 doneAction[5] = function (node) {
   if (node.prev) {
-    node.prev.endAll();
+    node.prev.closeAll();
   }
-  node.end();
+  node.close();
 };
 
 // free this synth; if the following node is a group then do g_freeAll on it, else free it
 doneAction[6] = function (node) {
   if (node.next) {
-    node.next.endAll();
+    node.next.closeAll();
   }
-  node.end();
+  node.close();
 };
 
 // free this synth and all preceding nodes in this group
@@ -797,7 +800,7 @@ doneAction[7] = function (node) {
   var prev = void 0;
   while (node) {
     prev = node.prev;
-    node.end();
+    node.close();
     node = prev;
   }
 };
@@ -807,7 +810,7 @@ doneAction[8] = function (node) {
   var next = void 0;
   while (node) {
     next = node.next;
-    node.end();
+    node.close();
     node = next;
   }
 };
@@ -815,42 +818,42 @@ doneAction[8] = function (node) {
 // free this synth and pause the preceding node
 doneAction[9] = function (node) {
   if (node.prev) {
-    node.prev.run(false);
+    node.prev.stop();
   }
-  node.end();
+  node.close();
 };
 
 // free this synth and pause the following node
 doneAction[10] = function (node) {
   if (node.next) {
-    node.next.run(false);
+    node.next.stop();
   }
-  node.end();
+  node.close();
 };
 
 // free this synth and if the preceding node is a group then do g_deepFree on it, else free it
 doneAction[11] = function (node) {
   if (node.prev) {
-    node.prev.endDeep();
+    node.prev.closeDeep();
   }
-  node.end();
+  node.close();
 };
 
 // free this synth and if the following node is a group then do g_deepFree on it, else free it
 doneAction[12] = function (node) {
   if (node.next) {
-    node.next.endDeep();
+    node.next.closeDeep();
   }
-  node.end();
+  node.close();
 };
 
 // free this synth and all other nodes in this group (before and after)
-doneAction[13] = function (node, next) {
+doneAction[13] = function (node) {
   if (node.parent) {
     node = node.parent.head;
     while (node) {
-      next = node.next;
-      node.end();
+      var next = node.next;
+      node.close();
       node = next;
     }
   }
@@ -858,7 +861,9 @@ doneAction[13] = function (node, next) {
 
 // free the enclosing group and all nodes within it (including this synth)
 doneAction[14] = function (node) {
-  node.parent.endDeep();
+  if (node.parent) {
+    node.parent.closeDeep();
+  }
 };
 
 module.exports = doneAction;
@@ -1012,8 +1017,8 @@ var SCSynthBuilder = function () {
         return new Float32Array([x]);
       });
       var params = new Float32Array(synthdef.paramValues);
-      var bufferLength = synthdef.specs.reduce(function (sum, spec) {
-        return sum + spec[4].reduce(function (sum, rate) {
+      var bufferLength = synthdef.units.reduce(function (sum, unitSpec) {
+        return sum + unitSpec[4].reduce(function (sum, rate) {
           return sum + $rate(context, rate).bufferLength;
         }, 0);
       }, 0);
@@ -1027,14 +1032,15 @@ var SCSynthBuilder = function () {
       synthInstance.unitList = unitList;
       synthInstance.dspUnitList = dspUnitList;
 
-      var specs = synthdef.specs;
+      var unitSpecs = synthdef.units;
+
       var bufferOffset = 0;
 
-      for (var i = 0, imax = specs.length; i < imax; i++) {
-        var spec = specs[i];
-        var inputSpecs = spec[3];
-        var outputSpecs = spec[4];
-        var unit = SCUnitRepository.createSCUnit(synthInstance, spec);
+      for (var i = 0, imax = unitSpecs.length; i < imax; i++) {
+        var unitSpec = unitSpecs[i];
+        var inputSpecs = unitSpec[3];
+        var outputSpecs = unitSpec[4];
+        var unit = SCUnitRepository.createSCUnit(synthInstance, unitSpec);
 
         for (var j = 0, jmax = unit.inputs.length; j < jmax; j++) {
           var inputSpec = inputSpecs[j];
@@ -1090,20 +1096,20 @@ var _createClass = function () { function defineProperties(target, props) { for 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 var SCUnit = function () {
-  function SCUnit(synth, spec) {
+  function SCUnit(synth, unitSpec) {
     _classCallCheck(this, SCUnit);
 
     this.context = synth.context;
     this.synth = synth;
-    this.name = spec[0];
-    this.calcRate = spec[1];
-    this.specialIndex = spec[2];
-    this.inputs = new Array(spec[3].length);
-    this.outputs = new Array(spec[4].length);
-    this.inputSpecs = spec[3].map(function () {
+    this.name = unitSpec[0];
+    this.calcRate = unitSpec[1];
+    this.specialIndex = unitSpec[2];
+    this.inputs = new Array(unitSpec[3].length);
+    this.outputs = new Array(unitSpec[4].length);
+    this.inputSpecs = unitSpec[3].map(function () {
       return { rate: 0, unit: null };
     });
-    this.outputSpecs = spec[4].map(function () {
+    this.outputSpecs = unitSpec[4].map(function () {
       return { rate: 0 };
     });
     this.bufferLength = 0;
@@ -1141,14 +1147,14 @@ var SCUnitRepository = function () {
 
   _createClass(SCUnitRepository, null, [{
     key: "createSCUnit",
-    value: function createSCUnit(synth, spec) {
-      var name = spec[0];
+    value: function createSCUnit(synth, unitSpec) {
+      var name = unitSpec[0];
 
       if (!db.has(name)) {
         throw new TypeError("SCUnit not defined: " + name);
       }
 
-      return new (db.get(name))(synth, spec);
+      return new (db.get(name))(synth, unitSpec);
     }
   }, {
     key: "registerSCUnitClass",
@@ -15616,6 +15622,7 @@ var synth = null;
 var buffers = null;
 var rIndex = 0;
 var wIndex = 0;
+var synthdef = null;
 var running = false;
 
 global.onmessage = function (e) {
@@ -15658,19 +15665,30 @@ function recvMessage(data) {
     });
   }
   if (context) {
-    if (data.type === "start") {
+    if (data.type === "play") {
       running = true;
+      if (synth === null) {
+        synth = context.createSynth(synthdef);
+        context.addToTail(synth);
+      }
       loop();
+    }
+    if (data.type === "pause") {
+      running = false;
     }
     if (data.type === "stop") {
       running = false;
+      if (synth) {
+        synth.close();
+      }
+      synth = null;
     }
     if (data.type === "synthdef") {
       if (synth) {
-        synth.end();
+        synth.close();
       }
-      synth = context.createSynth(data.value);
-      context.addToTail(synth);
+      synthdef = data.value;
+      synth = null;
     }
     if (data.type === "param" && synth) {
       var values = Array.prototype.slice.call(data.value, 0, synth.params.length);
