@@ -465,6 +465,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 
 var nmap = require("nmap");
 var util = require("./util");
+var fill = require("./util/fill");
 var DefaultConfig = require("./DefaultConfig");
 var SCGraphNode = require("./SCGraphNode");
 var SCSynth = require("./SCSynth");
@@ -512,7 +513,11 @@ var SCContext = function () {
   _createClass(SCContext, [{
     key: "createSynth",
     value: function createSynth(synthdef) {
-      return new SCSynth(this).build(synthdef);
+      var synth = new SCSynth(this);
+
+      synth.build(synthdef);
+
+      return synth;
     }
   }, {
     key: "createGroup",
@@ -532,7 +537,7 @@ var SCContext = function () {
   }, {
     key: "process",
     value: function process() {
-      this.bus.fill(0);
+      fill(this.bus, 0);
       this.root.process(this.blockSize);
     }
   }]);
@@ -541,7 +546,7 @@ var SCContext = function () {
 }();
 
 module.exports = SCContext;
-},{"./DefaultConfig":5,"./SCGraphNode":7,"./SCRate":9,"./SCSynth":10,"./util":174,"nmap":2}],7:[function(require,module,exports){
+},{"./DefaultConfig":5,"./SCGraphNode":7,"./SCRate":9,"./SCSynth":10,"./util":174,"./util/fill":172,"nmap":2}],7:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -949,32 +954,30 @@ var SCSynth = function (_SCGraphNode) {
           enumerable: true, configurable: true
         });
       });
-
-      return this;
     }
   }, {
     key: "setParam",
     value: function setParam(key, value) {
-      if (this.paramIndices.hasOwnProperty(key)) {
-        if (this.paramIndices[key].length === 1) {
-          this.params[this.paramIndices[key].index] = value;
-        } else {
-          this.params.set(value, this.paramIndices[key].index);
-        }
+      if (!this.paramIndices.hasOwnProperty(key)) {
+        throw new TypeError("param name is not defined: " + key);
       }
-      return this;
+      if (this.paramIndices[key].length === 1) {
+        this.params[this.paramIndices[key].index] = value;
+      } else {
+        this.params.set(value, this.paramIndices[key].index);
+      }
     }
   }, {
     key: "getParam",
     value: function getParam(key) {
-      if (this.paramIndices.hasOwnProperty(key)) {
-        if (this.paramIndices[key].length === 1) {
-          return this.params[this.paramIndices[key].index];
-        } else {
-          return this.params.subarray(this.paramIndices[key].index, this.paramIndices[key].index + this.paramIndices[key].length);
-        }
+      if (!this.paramIndices.hasOwnProperty(key)) {
+        throw new TypeError("param name is not defined: " + key);
       }
-      return 0;
+      if (this.paramIndices[key].length === 1) {
+        return this.params[this.paramIndices[key].index];
+      } else {
+        return this.params.subarray(this.paramIndices[key].index, this.paramIndices[key].index + this.paramIndices[key].length);
+      }
     }
   }, {
     key: "dspProcess",
@@ -1138,7 +1141,7 @@ var _createClass = function () { function defineProperties(target, props) { for 
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
-var db = new Map();
+var db = {};
 
 var SCUnitRepository = function () {
   function SCUnitRepository() {
@@ -1150,21 +1153,21 @@ var SCUnitRepository = function () {
     value: function createSCUnit(synth, unitSpec) {
       var name = unitSpec[0];
 
-      if (!db.has(name)) {
-        throw new TypeError("SCUnit not defined: " + name);
+      if (!db.hasOwnProperty(name)) {
+        throw new TypeError("SCUnit is not defined: " + name);
       }
 
-      return new (db.get(name))(synth, unitSpec);
+      return new db[name](synth, unitSpec);
     }
   }, {
     key: "registerSCUnitClass",
     value: function registerSCUnitClass(name, SCUnitClass) {
-      return db.set(name, SCUnitClass);
+      db[name] = SCUnitClass;
     }
   }, {
     key: "unregisterSCUnitClass",
     value: function unregisterSCUnitClass(name) {
-      return db.delete(name);
+      delete db[name];
     }
   }]);
 
@@ -1330,7 +1333,7 @@ var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
 var delay = require("./_delay");
 var toPowerOfTwo = require("../util/toPowerOfTwo");
-var cubicinterp = require("../util/cubicinterp");
+var sc_cubicinterp = require("../util/sc_cubicinterp");
 var clamp = require("../util/clamp");
 var dspProcess = {};
 
@@ -1385,7 +1388,7 @@ dspProcess["kk"] = function (inNumSamples) {
         var d1 = dlybuf[irdphase & mask];
         var d2 = dlybuf[irdphase - 1 & mask];
         var d3 = dlybuf[irdphase - 2 & mask];
-        var value = cubicinterp(frac, d0, d1, d2, d3) || 0;
+        var value = sc_cubicinterp(frac, d0, d1, d2, d3) || 0;
         var dwr = value * feedbk + inIn[i] || 0;
         dlybuf[iwrphase & mask] = dwr;
         out[i] = value - feedbk * dwr;
@@ -1400,7 +1403,7 @@ dspProcess["kk"] = function (inNumSamples) {
         var _d2 = dlybuf[irdphase & mask];
         var _d3 = dlybuf[irdphase - 1 & mask];
         var _d4 = dlybuf[irdphase - 2 & mask];
-        var _value = cubicinterp(frac, _d, _d2, _d3, _d4) || 0;
+        var _value = sc_cubicinterp(frac, _d, _d2, _d3, _d4) || 0;
         var _dwr = _value * feedbk + inIn[_i] || 0;
         dlybuf[iwrphase & mask] = _dwr;
         out[_i] = _value - feedbk * _dwr;
@@ -1423,7 +1426,7 @@ dspProcess["kk"] = function (inNumSamples) {
       var _d6 = dlybuf[irdphase & mask];
       var _d7 = dlybuf[irdphase - 1 & mask];
       var _d8 = dlybuf[irdphase - 2 & mask];
-      var _value2 = cubicinterp(_frac, _d5, _d6, _d7, _d8) || 0;
+      var _value2 = sc_cubicinterp(_frac, _d5, _d6, _d7, _d8) || 0;
       var _dwr2 = _value2 * feedbk + inIn[_i2] || 0;
       dlybuf[iwrphase & mask] = _dwr2;
       out[_i2] = _value2 - feedbk * _dwr2;
@@ -1441,7 +1444,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("AllpassC", SCUnitAllpassC);
 module.exports = SCUnitAllpassC;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/cubicinterp":172,"../util/toPowerOfTwo":176,"./_delay":167}],18:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/sc_cubicinterp":175,"../util/toPowerOfTwo":179,"./_delay":167}],18:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1560,7 +1563,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("AllpassL", SCUnitAllpassL);
 module.exports = SCUnitAllpassL;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":176,"./_delay":167}],19:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179,"./_delay":167}],19:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1671,7 +1674,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("AllpassN", SCUnitAllpassN);
 module.exports = SCUnitAllpassN;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":176,"./_delay":167}],20:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179,"./_delay":167}],20:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1972,8 +1975,8 @@ var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
 var demand = require("./_demand");
-var wrap = require("../util/wrap");
-var fold = require("../util/fold");
+var sc_wrap = require("../util/sc_wrap");
+var sc_fold = require("../util/sc_fold");
 var $i2n = "\n+ - * / / % eq ne lt gt le ge min max bitAnd bitOr bitXor lcm gcd round roundUp trunc atan2 hypot\nhypotApx pow leftShift rightShift unsignedRightShift fill ring1 ring2 ring3 ring4 difsqr sumsqr\nsqrsum sqrdif absdif thresh amclip scaleneg clip2 excess fold2 wrap2 firstarg randrange exprandrange\nnumbinaryselectors roundDown".trim().split(/\s/);
 var dspProcess = {};
 
@@ -2173,10 +2176,10 @@ dspProcess["excess"] = function (a, b) {
   return a - Math.max(-b, Math.min(a, b));
 };
 dspProcess["fold2"] = function (val, hi) {
-  return fold(val, -hi, hi);
+  return sc_fold(val, -hi, hi);
 };
 dspProcess["wrap2"] = function (val, hi) {
-  return wrap(val, -hi, hi);
+  return sc_wrap(val, -hi, hi);
 };
 dspProcess["+"]["aa"] = function (inNumSamples) {
   var out = this.outputs[0];
@@ -2440,7 +2443,7 @@ Object.keys(dspProcess).forEach(function (key) {
 });
 SCUnitRepository.registerSCUnitClass("BinaryOpUGen", SCUnitBinaryOpUGen);
 module.exports = SCUnitBinaryOpUGen;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/fold":173,"../util/wrap":182,"./_demand":168}],25:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_fold":176,"../util/sc_wrap":177,"./_demand":168}],25:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -2898,7 +2901,7 @@ var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
 var delay = require("./_delay");
 var toPowerOfTwo = require("../util/toPowerOfTwo");
-var cubicinterp = require("../util/cubicinterp");
+var sc_cubicinterp = require("../util/sc_cubicinterp");
 var clamp = require("../util/clamp");
 var dspProcess = {};
 
@@ -2953,7 +2956,7 @@ dspProcess["kk"] = function (inNumSamples) {
         var d1 = dlybuf[irdphase & mask];
         var d2 = dlybuf[irdphase - 1 & mask];
         var d3 = dlybuf[irdphase - 2 & mask];
-        var value = cubicinterp(frac, d0, d1, d2, d3) || 0;
+        var value = sc_cubicinterp(frac, d0, d1, d2, d3) || 0;
         dlybuf[iwrphase & mask] = inIn[i] + feedbk * value || 0;
         out[i] = value;
         irdphase++;
@@ -2967,7 +2970,7 @@ dspProcess["kk"] = function (inNumSamples) {
         var _d2 = dlybuf[irdphase & mask];
         var _d3 = dlybuf[irdphase - 1 & mask];
         var _d4 = dlybuf[irdphase - 2 & mask];
-        var _value = cubicinterp(frac, _d, _d2, _d3, _d4) || 0;
+        var _value = sc_cubicinterp(frac, _d, _d2, _d3, _d4) || 0;
         dlybuf[iwrphase & mask] = inIn[_i] + feedbk * _value || 0;
         out[_i] = _value;
         feedbk += feedbkSlope;
@@ -2988,7 +2991,7 @@ dspProcess["kk"] = function (inNumSamples) {
       var _d6 = dlybuf[irdphase & mask];
       var _d7 = dlybuf[irdphase - 1 & mask];
       var _d8 = dlybuf[irdphase - 2 & mask];
-      var _value2 = cubicinterp(frac, _d5, _d6, _d7, _d8) || 0;
+      var _value2 = sc_cubicinterp(frac, _d5, _d6, _d7, _d8) || 0;
       dlybuf[iwrphase & mask] = inIn[_i2] + feedbk * _value2 || 0;
       out[_i2] = _value2;
       feedbk += _feedbkSlope;
@@ -3004,7 +3007,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("CombC", SCUnitCombC);
 module.exports = SCUnitCombC;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/cubicinterp":172,"../util/toPowerOfTwo":176,"./_delay":167}],31:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/sc_cubicinterp":175,"../util/toPowerOfTwo":179,"./_delay":167}],31:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3118,7 +3121,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("CombL", SCUnitCombL);
 module.exports = SCUnitCombL;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":176,"./_delay":167}],32:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179,"./_delay":167}],32:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3226,7 +3229,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("CombN", SCUnitCombN);
 module.exports = SCUnitCombN;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":176,"./_delay":167}],33:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179,"./_delay":167}],33:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3416,6 +3419,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+var fill = require("../util/fill");
 
 var SCUnitDC = function (_SCUnit) {
   _inherits(SCUnitDC, _SCUnit);
@@ -3429,7 +3433,7 @@ var SCUnitDC = function (_SCUnit) {
   _createClass(SCUnitDC, [{
     key: "initialize",
     value: function initialize() {
-      this.outputs[0].fill(this.inputs[0][0]);
+      fill(this.outputs[0], this.inputs[0][0]);
     }
   }]);
 
@@ -3439,7 +3443,7 @@ var SCUnitDC = function (_SCUnit) {
 SCUnitRepository.registerSCUnitClass("DC", SCUnitDC);
 
 module.exports = SCUnitDC;
-},{"../SCUnit":12,"../SCUnitRepository":13}],38:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],38:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3713,7 +3717,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
 var toPowerOfTwo = require("../util/toPowerOfTwo");
-var cubicinterp = require("../util/cubicinterp");
+var sc_cubicinterp = require("../util/sc_cubicinterp");
 var clamp = require("../util/clamp");
 var dspProcess = {};
 
@@ -3765,7 +3769,7 @@ dspProcess["k"] = function (inNumSamples) {
       var d1 = dlybuf[irdphase & mask];
       var d2 = dlybuf[irdphase - 1 & mask];
       var d3 = dlybuf[irdphase - 2 & mask];
-      out[i] = cubicinterp(frac, d0, d1, d2, d3);
+      out[i] = sc_cubicinterp(frac, d0, d1, d2, d3);
       iwrphase += 1;
     }
   } else {
@@ -3780,7 +3784,7 @@ dspProcess["k"] = function (inNumSamples) {
       var _d2 = dlybuf[_irdphase & mask];
       var _d3 = dlybuf[_irdphase - 1 & mask];
       var _d4 = dlybuf[_irdphase - 2 & mask];
-      out[_i] = cubicinterp(_frac, _d, _d2, _d3, _d4);
+      out[_i] = sc_cubicinterp(_frac, _d, _d2, _d3, _d4);
       iwrphase += 1;
     }
     this._dsamp = nextDsamp;
@@ -3793,7 +3797,7 @@ dspProcess["k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("DelayC", SCUnitDelayC);
 module.exports = SCUnitDelayC;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/cubicinterp":172,"../util/toPowerOfTwo":176}],43:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/sc_cubicinterp":175,"../util/toPowerOfTwo":179}],43:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3882,7 +3886,7 @@ dspProcess["k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("DelayL", SCUnitDelayL);
 module.exports = SCUnitDelayL;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":176}],44:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179}],44:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3965,7 +3969,7 @@ dspProcess["k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("DelayN", SCUnitDelayN);
 module.exports = SCUnitDelayN;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":176}],45:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179}],45:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4251,7 +4255,7 @@ dspProcess["next_ak"] = function (inNumSamples) {
     counter = Math.max(1, dur * this.rate.sampleRate | 0) + counterOffset;
     this._stage = numstages;
     this._shape = shape_Linear;
-    this._endLevel = this.inputs[this.numInputs - 4][0] * this.inputs[kEnvGen_levelScale][0] + this.inputs[kEnvGen_levelBias][0];
+    this._endLevel = this.inputs[this.inputs.length - 4][0] * this.inputs[kEnvGen_levelScale][0] + this.inputs[kEnvGen_levelBias][0];
     this._grow = (this._endLevel - level) / counter;
     this._released = true;
   } else if (prevGate > 0 && gate <= 0 && this._releaseNode >= 0 && !this._released) {
@@ -4289,7 +4293,7 @@ dspProcess["next_ak"] = function (inNumSamples) {
     }
     if (initSegment) {
       stageOffset = (this._stage << 2) + kEnvGen_nodeOffset;
-      if (stageOffset + 4 > this.numInputs) {
+      if (stageOffset + 4 > this.inputs.length) {
         return;
       }
       envPtr = this.inputs;
@@ -4475,7 +4479,7 @@ dspProcess["next_k"] = function () {
     counter = Math.max(1, dur * this.rate.sampleRate | 0) + counterOffset;
     this._stage = numstages;
     this._shape = shape_Linear;
-    this._endLevel = this.inputs[this.numInputs - 4][0] * this.inputs[kEnvGen_levelScale][0] + this.inputs[kEnvGen_levelBias][0];
+    this._endLevel = this.inputs[this.inputs.length - 4][0] * this.inputs[kEnvGen_levelScale][0] + this.inputs[kEnvGen_levelBias][0];
     this._grow = (this._endLevel - level) / counter;
     this._released = true;
   } else if (prevGate > 0 && gate <= 0 && this._releaseNode >= 0 && !this._released) {
@@ -4511,7 +4515,7 @@ dspProcess["next_k"] = function () {
   }
   if (initSegment) {
     stageOffset = (this._stage << 2) + kEnvGen_nodeOffset;
-    if (stageOffset + 4 > this.numInputs) {
+    if (stageOffset + 4 > this.inputs.length) {
       return;
     }
     envPtr = this.inputs;
@@ -4847,7 +4851,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
-var fold = require("../util/fold");
+var sc_fold = require("../util/sc_fold");
 var dspProcess = {};
 
 var SCUnitFold = function (_SCUnit) {
@@ -4883,7 +4887,7 @@ dspProcess["next_aa"] = function (inNumSamples) {
   var loIn = this.inputs[1];
   var hiIn = this.inputs[2];
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = fold(inIn[i], loIn[i], hiIn[i]);
+    out[i] = sc_fold(inIn[i], loIn[i], hiIn[i]);
   }
 };
 dspProcess["next_kk"] = function (inNumSamples) {
@@ -4895,13 +4899,13 @@ dspProcess["next_kk"] = function (inNumSamples) {
   var hi = this._hi;
   if (next_lo === lo && next_hi === hi) {
     for (var i = 0; i < inNumSamples; i++) {
-      out[i] = fold(inIn[i], lo, hi);
+      out[i] = sc_fold(inIn[i], lo, hi);
     }
   } else {
     var lo_slope = (next_lo - lo) * this._slopeFactor;
     var hi_slope = (next_hi - hi) * this._slopeFactor;
     for (var _i = 0; _i < inNumSamples; _i++) {
-      out[_i] = fold(inIn[_i], lo + lo_slope * _i, hi + hi_slope * _i);
+      out[_i] = sc_fold(inIn[_i], lo + lo_slope * _i, hi + hi_slope * _i);
     }
     this._lo = next_lo;
     this._hi = next_hi;
@@ -4909,7 +4913,7 @@ dspProcess["next_kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Fold", SCUnitFold);
 module.exports = SCUnitFold;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/fold":173}],53:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_fold":176}],53:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5169,6 +5173,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+var fillRange = require("../util/fillRange");
 var dspProcess = {};
 
 var SCUnitGate = function (_SCUnit) {
@@ -5218,12 +5223,12 @@ dspProcess["next_ak"] = function (inNumSamples) {
     out.set(inIn.subarray(0, inNumSamples));
     this._level = inIn[inNumSamples - 1];
   } else {
-    out.fill(this._level, 0, inNumSamples);
+    fillRange(out, this._level, 0, inNumSamples);
   }
 };
 SCUnitRepository.registerSCUnitClass("Gate", SCUnitGate);
 module.exports = SCUnitGate;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],55:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/fillRange":173}],55:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5760,6 +5765,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+var fillRange = require("../util/fillRange");
 var dspProcess = {};
 
 var SCUnitK2A = function (_SCUnit) {
@@ -5782,11 +5788,11 @@ var SCUnitK2A = function (_SCUnit) {
 }(SCUnit);
 
 dspProcess["next"] = function (inNumSamples) {
-  this.outputs[0].fill(this.inputs[0][0], 0, inNumSamples);
+  fillRange(this.outputs[0], this.inputs[0][0], 0, inNumSamples);
 };
 SCUnitRepository.registerSCUnitClass("K2A", SCUnitK2A);
 module.exports = SCUnitK2A;
-},{"../SCUnit":12,"../SCUnitRepository":13}],65:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fillRange":173}],65:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5858,6 +5864,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+var fill = require("../util/fill");
 var dspProcess = {};
 
 var SCUnitKlang = function (_SCUnit) {
@@ -5872,7 +5879,7 @@ var SCUnitKlang = function (_SCUnit) {
   _createClass(SCUnitKlang, [{
     key: "initialize",
     value: function initialize(rate) {
-      var numpartials = (this.numInputs - 2) / 3;
+      var numpartials = (this.inputs.length - 2) / 3;
       var numcoefs = numpartials * 3;
       var coefs = new Float32Array(numcoefs);
       var inputs = this.inputs;
@@ -6153,7 +6160,7 @@ dspProcess["next0"] = function (inNumSamples) {
       y2_3 = void 0,
       b1_3 = void 0;
   var outf = void 0;
-  out.fill(0);
+  fill(out, 0);
   for (var n = 0, nmax = this._n; n < nmax; n++) {
     y1_0 = coefs[0];
     y2_0 = coefs[1];
@@ -6194,7 +6201,7 @@ dspProcess["next0"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Klang", SCUnitKlang);
 module.exports = SCUnitKlang;
-},{"../SCUnit":12,"../SCUnitRepository":13}],67:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],67:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -6207,6 +6214,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+var fill = require("../util/fill");
 var dspProcess = {};
 var log001 = Math.log(0.001);
 
@@ -6222,7 +6230,7 @@ var SCUnitKlank = function (_SCUnit) {
   _createClass(SCUnitKlank, [{
     key: "initialize",
     value: function initialize(rate) {
-      var numpartials = (this.numInputs - 4) / 3;
+      var numpartials = (this.inputs.length - 4) / 3;
       var numcoefs = (numpartials + 3 & ~3) * 5;
       var coefs = new Float32Array(numcoefs + this.bufferLength);
       var buf = new Float32Array(coefs.buffer, numcoefs * 4);
@@ -6629,7 +6637,7 @@ dspProcess["next0"] = function (inNumSamples) {
       b1_3 = void 0,
       b2_3 = void 0;
   var k = this._n * 20;
-  buf.fill(0);
+  fill(buf, 0);
   for (var n = 0, nmax = this._n; n < nmax; n++) {
     y1_0 = coefs[k + 0];
     y2_0 = coefs[k + 4];
@@ -6690,7 +6698,7 @@ dspProcess["next0"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Klank", SCUnitKlank);
 module.exports = SCUnitKlank;
-},{"../SCUnit":12,"../SCUnitRepository":13}],68:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],68:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7071,7 +7079,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
-var cubicinterp = require("../util/cubicinterp");
+var sc_cubicinterp = require("../util/sc_cubicinterp");
 var dspProcess = {};
 
 var SCUnitLFDNoise3 = function (_SCUnit) {
@@ -7122,7 +7130,7 @@ dspProcess["next"] = function (inNumSamples) {
       c = d;
       d = Math.random() * 2 - 1;
     }
-    out[i] = cubicinterp(1 - phase, a, b, c, d);
+    out[i] = sc_cubicinterp(1 - phase, a, b, c, d);
   }
   this._levelA = a;
   this._levelB = b;
@@ -7149,7 +7157,7 @@ dspProcess["next_k"] = function (inNumSamples) {
       c = d;
       d = Math.random() * 2 - 1;
     }
-    out[i] = cubicinterp(1 - phase, a, b, c, d);
+    out[i] = sc_cubicinterp(1 - phase, a, b, c, d);
   }
   this._levelA = a;
   this._levelB = b;
@@ -7159,7 +7167,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFDNoise3", SCUnitLFDNoise3);
 module.exports = SCUnitLFDNoise3;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/cubicinterp":172}],74:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_cubicinterp":175}],74:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8457,6 +8465,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+var fillRange = require("../util/fillRange");
 var dspProcess = {};
 
 var SCUnitLatch = function (_SCUnit) {
@@ -8509,13 +8518,13 @@ dspProcess["next_ak"] = function (inNumSamples) {
   if (this._trig <= 0 && trig > 0) {
     level = this.inputs[0][0];
   }
-  out.fill(level, 0, inNumSamples);
+  fillRange(out, level, 0, inNumSamples);
   this._trig = trig;
   this._level = level;
 };
 SCUnitRepository.registerSCUnitClass("Latch", SCUnitLatch);
 module.exports = SCUnitLatch;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],92:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/fillRange":173}],92:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10044,6 +10053,9 @@ var SCUnitOut = function (_SCUnit) {
     key: "initialize",
     value: function initialize() {
       if (this.calcRate === C.RATE_AUDIO) {
+        // assert(
+        //   this.inputSpecs.slice(1).every(spec => spec.rate === C.RATE_AUDIO)
+        // );
         this.dspProcess = dspProcess["a"];
         this._buses = this.context.audioBuses;
       } else {
@@ -10064,9 +10076,8 @@ dspProcess["a"] = function (inNumSamples) {
   for (var i = 1, imax = inputs.length; i < imax; i++) {
     var bus = buses[firstBusChannel + i];
     var _in = inputs[i];
-    var nsmps = Math.min(_in.length, inNumSamples);
 
-    for (var j = 0; j < nsmps; j++) {
+    for (var j = 0; j < inNumSamples; j++) {
       bus[j] += _in[j];
     }
   }
@@ -10370,7 +10381,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
-var sc_wrap = require("../util/wrap");
+var sc_wrap = require("../util/sc_wrap");
 var dspProcess = {};
 
 var SCUnitPhasor = function (_SCUnit) {
@@ -10419,7 +10430,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Phasor", SCUnitPhasor);
 module.exports = SCUnitPhasor;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/wrap":182}],117:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_wrap":177}],117:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12656,7 +12667,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
-var sc_wrap = require("../util/wrap");
+var sc_wrap = require("../util/sc_wrap");
 var $r2k = ["i", "k", "a"];
 var dspProcess = {};
 
@@ -12757,7 +12768,7 @@ dspProcess["0"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Stepper", SCUnitStepper);
 module.exports = SCUnitStepper;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/wrap":182}],142:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_wrap":177}],142:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13294,6 +13305,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+var fill = require("../util/fill");
 var dspProcess = {};
 
 var SCUnitT2A = function (_SCUnit) {
@@ -13319,7 +13331,7 @@ var SCUnitT2A = function (_SCUnit) {
 dspProcess["next"] = function () {
   var out = this.outputs[0];
   var level = this.input[0][0];
-  out.fill(0);
+  fill(out, 0);
   if (this._level <= 0 && level > 0) {
     this.outputs[0][this.input[1][0] | 0] = level;
   }
@@ -13327,7 +13339,7 @@ dspProcess["next"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("T2A", SCUnitT2A);
 module.exports = SCUnitT2A;
-},{"../SCUnit":12,"../SCUnitRepository":13}],148:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],148:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14517,6 +14529,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+var fill = require("../util/fill");
 var dspProcess = {};
 
 var SCUnitVarLag = function (_SCUnit) {
@@ -14581,7 +14594,7 @@ dspProcess["next"] = function (inNumSamples) {
       }
     }
   } else {
-    out.fill(level);
+    fill(out, level);
   }
   this._level = level;
   this._slope = slope;
@@ -14614,7 +14627,7 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("VarLag", SCUnitVarLag);
 module.exports = SCUnitVarLag;
-},{"../SCUnit":12,"../SCUnitRepository":13}],162:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],162:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14671,7 +14684,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
-var wrap = require("../util/wrap");
+var sc_wrap = require("../util/sc_wrap");
 var dspProcess = {};
 
 var SCUnitWrap = function (_SCUnit) {
@@ -14707,7 +14720,7 @@ dspProcess["next_aa"] = function (inNumSamples) {
   var loIn = this.inputs[1];
   var hiIn = this.inputs[2];
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = wrap(inIn[i], loIn[i], hiIn[i]);
+    out[i] = sc_wrap(inIn[i], loIn[i], hiIn[i]);
   }
 };
 dspProcess["next_kk"] = function (inNumSamples) {
@@ -14719,13 +14732,13 @@ dspProcess["next_kk"] = function (inNumSamples) {
   var hi = this._hi;
   if (next_lo === lo && next_hi === hi) {
     for (var i = 0; i < inNumSamples; i++) {
-      out[i] = wrap(inIn[i], lo, hi);
+      out[i] = sc_wrap(inIn[i], lo, hi);
     }
   } else {
     var lo_slope = (next_lo - lo) * this._slopeFactor;
     var hi_slope = (next_hi - hi) * this._slopeFactor;
     for (var _i = 0; _i < inNumSamples; _i++) {
-      out[_i] = wrap(inIn[_i], lo + lo_slope * _i, hi + hi_slope * _i);
+      out[_i] = sc_wrap(inIn[_i], lo + lo_slope * _i, hi + hi_slope * _i);
     }
     this._lo = next_lo;
     this._hi = next_hi;
@@ -14733,7 +14746,7 @@ dspProcess["next_kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Wrap", SCUnitWrap);
 module.exports = SCUnitWrap;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/wrap":182}],164:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_wrap":177}],164:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -15258,6 +15271,54 @@ module.exports = clamp;
 },{}],172:[function(require,module,exports){
 "use strict";
 
+function fill(list, value) {
+  if (list.fill) {
+    return list.fill(value);
+  }
+
+  for (var i = 0, imax = list.length; i < imax; i++) {
+    list[i] = value;
+  }
+
+  return list;
+}
+
+module.exports = fill;
+},{}],173:[function(require,module,exports){
+"use strict";
+
+function fillRange(list, value, start, end) {
+  if (list.fill) {
+    return list.fill(value, start, end);
+  }
+
+  for (var i = start; i < end; i++) {
+    list[i] = value;
+  }
+
+  return list;
+}
+
+module.exports = fillRange;
+},{}],174:[function(require,module,exports){
+"use strict";
+
+module.exports.clamp = require("./clamp");
+module.exports.fill = require("./fill");
+module.exports.fillRange = require("./fillRange");
+module.exports.sc_cubicinterp = require("./sc_cubicinterp");
+module.exports.sc_fold = require("./sc_fold");
+module.exports.sc_wrap = require("./sc_wrap");
+module.exports.toNumber = require("./toNumber");
+module.exports.toPowerOfTwo = require("./toPowerOfTwo");
+module.exports.toValidBlockSize = require("./toValidBlockSize");
+module.exports.toValidNumberOfAudioBus = require("./toValidNumberOfAudioBus");
+module.exports.toValidNumberOfChannels = require("./toValidNumberOfChannels");
+module.exports.toValidNumberOfControlBus = require("./toValidNumberOfControlBus");
+module.exports.toValidSampleRate = require("./toValidSampleRate");
+},{"./clamp":171,"./fill":172,"./fillRange":173,"./sc_cubicinterp":175,"./sc_fold":176,"./sc_wrap":177,"./toNumber":178,"./toPowerOfTwo":179,"./toValidBlockSize":180,"./toValidNumberOfAudioBus":181,"./toValidNumberOfChannels":182,"./toValidNumberOfControlBus":183,"./toValidSampleRate":184}],175:[function(require,module,exports){
+"use strict";
+
 function cubicinterp(x, y0, y1, y2, y3) {
   var c0 = y1;
   var c1 = 0.5 * (y2 - y0);
@@ -15268,7 +15329,7 @@ function cubicinterp(x, y0, y1, y2, y3) {
 }
 
 module.exports = cubicinterp;
-},{}],173:[function(require,module,exports){
+},{}],176:[function(require,module,exports){
 "use strict";
 
 function fold(val, lo, hi) {
@@ -15305,104 +15366,7 @@ function fold(val, lo, hi) {
 }
 
 module.exports = fold;
-},{}],174:[function(require,module,exports){
-"use strict";
-
-module.exports.clamp = require("./clamp");
-module.exports.cubicinterp = require("./cubicinterp");
-module.exports.toNumber = require("./toNumber");
-module.exports.toPowerOfTwo = require("./toPowerOfTwo");
-module.exports.toValidBlockSize = require("./toValidBlockSize");
-module.exports.toValidNumberOfAudioBus = require("./toValidNumberOfAudioBus");
-module.exports.toValidNumberOfChannels = require("./toValidNumberOfChannels");
-module.exports.toValidNumberOfControlBus = require("./toValidNumberOfControlBus");
-module.exports.toValidSampleRate = require("./toValidSampleRate");
-},{"./clamp":171,"./cubicinterp":172,"./toNumber":175,"./toPowerOfTwo":176,"./toValidBlockSize":177,"./toValidNumberOfAudioBus":178,"./toValidNumberOfChannels":179,"./toValidNumberOfControlBus":180,"./toValidSampleRate":181}],175:[function(require,module,exports){
-"use strict";
-
-function toNumber(value) {
-  return +value || 0;
-}
-
-module.exports = toNumber;
-},{}],176:[function(require,module,exports){
-"use strict";
-
-function toPowerOfTwo(value, round) {
-  round = round || Math.round;
-  return 1 << round(Math.log(value) / Math.log(2));
-}
-
-module.exports = toPowerOfTwo;
 },{}],177:[function(require,module,exports){
-"use strict";
-
-var clamp = require("./clamp");
-var toPowerOfTwo = require("./toPowerOfTwo");
-var MIN_BLOCK_SIZE = 8;
-var MAX_BLOCK_SIZE = 1024;
-
-function toValidBlockSize(value) {
-  return clamp(toPowerOfTwo(value), MIN_BLOCK_SIZE, MAX_BLOCK_SIZE);
-}
-
-module.exports = toValidBlockSize;
-},{"./clamp":171,"./toPowerOfTwo":176}],178:[function(require,module,exports){
-"use strict";
-
-var toNumber = require("./toNumber");
-var clamp = require("./clamp");
-
-var MIN_NUMBER_OF_AUDIO_BUS = 2;
-var MAX_NUMBER_OF_AUDIO_BUS = 1024;
-
-function toValidNumberOfAudioBus(value) {
-  return clamp(toNumber(value) | 0, MIN_NUMBER_OF_AUDIO_BUS, MAX_NUMBER_OF_AUDIO_BUS);
-}
-
-module.exports = toValidNumberOfAudioBus;
-},{"./clamp":171,"./toNumber":175}],179:[function(require,module,exports){
-"use strict";
-
-var toNumber = require("./toNumber");
-var clamp = require("./clamp");
-
-var MAX_NUMBER_OF_CHANNELS = 32;
-
-function toValidNumberOfChannels(value) {
-  return clamp(toNumber(value) | 0, 1, MAX_NUMBER_OF_CHANNELS);
-}
-
-module.exports = toValidNumberOfChannels;
-},{"./clamp":171,"./toNumber":175}],180:[function(require,module,exports){
-"use strict";
-
-var toNumber = require("./toNumber");
-var clamp = require("./clamp");
-
-var MIN_NUMBER_OF_AUDIO_BUS = 2;
-var MAX_NUMBER_OF_AUDIO_BUS = 1024;
-
-function toValidNumberOfControlBus(value) {
-  return clamp(toNumber(value) | 0, MIN_NUMBER_OF_AUDIO_BUS, MAX_NUMBER_OF_AUDIO_BUS);
-}
-
-module.exports = toValidNumberOfControlBus;
-},{"./clamp":171,"./toNumber":175}],181:[function(require,module,exports){
-"use strict";
-
-var toNumber = require("./toNumber");
-var clamp = require("./clamp");
-
-var MIN_SAMPLERATE = 3000;
-var MAX_SAMPLERATE = 192000;
-
-function toValidSampleRate(value) {
-  return clamp(toNumber(value) | 0, MIN_SAMPLERATE, MAX_SAMPLERATE);
-}
-
-module.exports = toValidSampleRate;
-},{"./clamp":171,"./toNumber":175}],182:[function(require,module,exports){
 "use strict";
 
 function wrap(val, lo, hi) {
@@ -15430,7 +15394,92 @@ function wrap(val, lo, hi) {
 }
 
 module.exports = wrap;
-},{}],183:[function(require,module,exports){
+},{}],178:[function(require,module,exports){
+"use strict";
+
+function toNumber(value) {
+  return +value || 0;
+}
+
+module.exports = toNumber;
+},{}],179:[function(require,module,exports){
+"use strict";
+
+function toPowerOfTwo(value, round) {
+  round = round || Math.round;
+  return 1 << round(Math.log(value) / Math.log(2));
+}
+
+module.exports = toPowerOfTwo;
+},{}],180:[function(require,module,exports){
+"use strict";
+
+var clamp = require("./clamp");
+var toPowerOfTwo = require("./toPowerOfTwo");
+var MIN_BLOCK_SIZE = 8;
+var MAX_BLOCK_SIZE = 1024;
+
+function toValidBlockSize(value) {
+  return clamp(toPowerOfTwo(value), MIN_BLOCK_SIZE, MAX_BLOCK_SIZE);
+}
+
+module.exports = toValidBlockSize;
+},{"./clamp":171,"./toPowerOfTwo":179}],181:[function(require,module,exports){
+"use strict";
+
+var toNumber = require("./toNumber");
+var clamp = require("./clamp");
+
+var MIN_NUMBER_OF_AUDIO_BUS = 2;
+var MAX_NUMBER_OF_AUDIO_BUS = 1024;
+
+function toValidNumberOfAudioBus(value) {
+  return clamp(toNumber(value), MIN_NUMBER_OF_AUDIO_BUS, MAX_NUMBER_OF_AUDIO_BUS) | 0;
+}
+
+module.exports = toValidNumberOfAudioBus;
+},{"./clamp":171,"./toNumber":178}],182:[function(require,module,exports){
+"use strict";
+
+var toNumber = require("./toNumber");
+var clamp = require("./clamp");
+
+var MAX_NUMBER_OF_CHANNELS = 32;
+
+function toValidNumberOfChannels(value) {
+  return clamp(toNumber(value), 1, MAX_NUMBER_OF_CHANNELS) | 0;
+}
+
+module.exports = toValidNumberOfChannels;
+},{"./clamp":171,"./toNumber":178}],183:[function(require,module,exports){
+"use strict";
+
+var toNumber = require("./toNumber");
+var clamp = require("./clamp");
+
+var MIN_NUMBER_OF_AUDIO_BUS = 2;
+var MAX_NUMBER_OF_AUDIO_BUS = 1024;
+
+function toValidNumberOfControlBus(value) {
+  return clamp(toNumber(value), MIN_NUMBER_OF_AUDIO_BUS, MAX_NUMBER_OF_AUDIO_BUS) | 0;
+}
+
+module.exports = toValidNumberOfControlBus;
+},{"./clamp":171,"./toNumber":178}],184:[function(require,module,exports){
+"use strict";
+
+var toNumber = require("./toNumber");
+var clamp = require("./clamp");
+
+var MIN_SAMPLERATE = 3000;
+var MAX_SAMPLERATE = 192000;
+
+function toValidSampleRate(value) {
+  return clamp(toNumber(value), MIN_SAMPLERATE, MAX_SAMPLERATE) | 0;
+}
+
+module.exports = toValidSampleRate;
+},{"./clamp":171,"./toNumber":178}],185:[function(require,module,exports){
 (function (process,global){
 (function (global, undefined) {
     "use strict";
@@ -15609,7 +15658,7 @@ module.exports = wrap;
 }(typeof self === "undefined" ? typeof global === "undefined" ? this : global : self));
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":3}],184:[function(require,module,exports){
+},{"_process":3}],186:[function(require,module,exports){
 (function (global){
 "use strict";
 
@@ -15699,4 +15748,4 @@ function recvMessage(data) {
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"scsynth":14,"setimmediate":183}]},{},[184]);
+},{"scsynth":14,"setimmediate":185}]},{},[186]);
