@@ -41,6 +41,9 @@ window.addEventListener("DOMContentLoaded", () => {
       stop() {
         this.isPlaying = false;
         player.stop();
+      },
+      buildParams(synthdef) {
+        buildParams(synthdef);
       }
     }
   });
@@ -65,17 +68,25 @@ window.addEventListener("DOMContentLoaded", () => {
   const scView = window.document.getElementById("sc-view");
   const jsView = window.document.getElementById("js-view");
 
+  function toText(res, message) {
+    return res.status === 200 ? res.text() : Promise.resolve(message);
+  }
+
+  const emptySynthDef = JSON.stringify({name:"",consts:[],paramValues:[],paramIndices:[],units:[],variants:{}});
+
   function fetchSynthDef(name) {
-    Promise.all([
-      window.fetch(`synthdef/${ name }.sc`).then(res => res.text()),
-      window.fetch(`synthdef/${ name }.json`).then(res => res.text())
+    return Promise.all([
+      window.fetch(`synthdef/${ name }.sc`).then(res => toText(res, "")),
+      window.fetch(`synthdef/${ name }.json`).then(res => toText(res, emptySynthDef))
     ]).then(([ sc, json ]) => {
       scView.className = "prettyprint";
       jsView.className = "prettyprint";
       scView.textContent = sc.replace(/\t/g, "  ");
       jsView.textContent = json;
       window.prettyPrint();
-      player.setSynthDef(JSON.parse(json));
+      const synthdef = JSON.parse(json);
+      player.setSynthDef(synthdef);
+      app.buildParams(synthdef);
     });
   }
 
@@ -120,8 +131,8 @@ window.addEventListener("DOMContentLoaded", () => {
       scView.textContent = "// dropped synthdef";
       jsView.textContent = json;
       window.prettyPrint();
-      buildParams(synthdef);
       player.setSynthDef(synthdef);
+      app.buildParams(synthdef);
       app.selected = "";
     };
 

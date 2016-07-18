@@ -2834,11 +2834,14 @@ window.addEventListener("DOMContentLoaded", function () {
       stop: function stop() {
         this.isPlaying = false;
         player.stop();
+      },
+      buildParams: function buildParams(synthdef) {
+        _buildParams(synthdef);
       }
     }
   });
 
-  function buildParams(synthdef) {
+  function _buildParams(synthdef) {
     var params = synthdef.paramValues.map(function (value) {
       var min = value * 0.5;
       var max = min ? value * 2 : 127;
@@ -2861,11 +2864,17 @@ window.addEventListener("DOMContentLoaded", function () {
   var scView = window.document.getElementById("sc-view");
   var jsView = window.document.getElementById("js-view");
 
+  function toText(res, message) {
+    return res.status === 200 ? res.text() : Promise.resolve(message);
+  }
+
+  var emptySynthDef = JSON.stringify({ name: "", consts: [], paramValues: [], paramIndices: [], units: [], variants: {} });
+
   function fetchSynthDef(name) {
-    Promise.all([window.fetch("synthdef/" + name + ".sc").then(function (res) {
-      return res.text();
+    return Promise.all([window.fetch("synthdef/" + name + ".sc").then(function (res) {
+      return toText(res, "");
     }), window.fetch("synthdef/" + name + ".json").then(function (res) {
-      return res.text();
+      return toText(res, emptySynthDef);
     })]).then(function (_ref) {
       var _ref2 = _slicedToArray(_ref, 2);
 
@@ -2877,7 +2886,9 @@ window.addEventListener("DOMContentLoaded", function () {
       scView.textContent = sc.replace(/\t/g, "  ");
       jsView.textContent = json;
       window.prettyPrint();
-      player.setSynthDef(JSON.parse(json));
+      var synthdef = JSON.parse(json);
+      player.setSynthDef(synthdef);
+      app.buildParams(synthdef);
     });
   }
 
@@ -2926,8 +2937,8 @@ window.addEventListener("DOMContentLoaded", function () {
       scView.textContent = "// dropped synthdef";
       jsView.textContent = json;
       window.prettyPrint();
-      buildParams(synthdef);
       player.setSynthDef(synthdef);
+      app.buildParams(synthdef);
       app.selected = "";
     };
 
