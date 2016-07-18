@@ -84,6 +84,10 @@ class AudioDriver {
   setParam(param1, param2) {
     this.worker.postMessage({ type: "param", value: [ param1, param2 ] });
   }
+
+  updateMouseState(mouseState) {
+    this.worker.postMessage({ type: "mousestate", value: mouseState });
+  }
 }
 
 module.exports = AudioDriver;

@@ -1,6 +1,7 @@
 "use strict";
 
 const window = global;
+const throttle = require("lodash.throttle");
 const decoder = require("synthdef-decoder");
 const formatter = require("synthdef-json-formatter");
 const AudioDriver = require("./AudioDriver");
@@ -66,6 +67,25 @@ window.addEventListener("DOMContentLoaded", () => {
     app.list.push(...list);
     app.selected = list[0];
     app.change();
+  });
+
+  const mouseState = { x: 0, y: 0, button: 0 };
+  const updateMouseState = throttle(() => {
+    player.updateMouseState(mouseState);
+  }, 100);
+
+  window.addEventListener("mousedown", () => {
+    mouseState.button = 1;
+    updateMouseState();
+  });
+  window.addEventListener("mousemove", (e) => {
+    mouseState.x = e.pageX / window.innerWidth;
+    mouseState.y = e.pageY / window.innerHeight;
+    updateMouseState();
+  });
+  window.addEventListener("mouseup", () => {
+    mouseState.button = 0;
+    updateMouseState();
   });
 
   function dropFile(file) {

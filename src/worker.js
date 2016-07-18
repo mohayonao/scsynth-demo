@@ -3,6 +3,7 @@
 require("setimmediate");
 
 const scsynth = require("scsynth");
+const { UI_MOUSE_X, UI_MOUSE_Y, UI_MOUSE_BUTTON } = scsynth.Constants;
 
 let context = null;
 let synth = null;
@@ -55,8 +56,7 @@ function recvMessage(data) {
     if (data.type === "play") {
       running = true;
       if (synth === null) {
-        synth = context.createSynth(synthdef);
-        context.addToTail(synth);
+        synth = context.createSynth(synthdef).appendTo(context);
       }
       loop();
     }
@@ -81,6 +81,11 @@ function recvMessage(data) {
       const values = Array.prototype.slice.call(data.value, 0, synth.params.length);
 
       synth.params.set(values);
+    }
+    if (data.type === "mousestate") {
+      context.uiValues[UI_MOUSE_X] = data.value.x;
+      context.uiValues[UI_MOUSE_Y] = data.value.y;
+      context.uiValues[UI_MOUSE_BUTTON] = data.value.button;
     }
   }
 }

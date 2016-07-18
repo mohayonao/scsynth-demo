@@ -504,7 +504,7 @@ var SCContext = function () {
       return _this.audioBuses[ch];
     });
 
-    this.root = new SCGraphNode();
+    this.root = new SCGraphNode(this);
     this.root.parent = this; // state hacking
     this.aRate = new SCRate(this.sampleRate, this.blockSize);
     this.kRate = new SCRate(this.sampleRate / this.blockSize, 1);
@@ -522,17 +522,19 @@ var SCContext = function () {
   }, {
     key: "createGroup",
     value: function createGroup() {
-      return new SCGraphNode();
+      return new SCGraphNode(this);
     }
   }, {
-    key: "addToHead",
-    value: function addToHead(node) {
-      this.root.addToHead(node);
+    key: "append",
+    value: function append(node) {
+      this.root.append(node);
+      return this;
     }
   }, {
-    key: "addToTail",
-    value: function addToTail(node) {
-      this.root.addToTail(node);
+    key: "prepend",
+    value: function prepend(node) {
+      this.root.prepend(node);
+      return this;
     }
   }, {
     key: "process",
@@ -546,7 +548,7 @@ var SCContext = function () {
 }();
 
 module.exports = SCContext;
-},{"./DefaultConfig":5,"./SCGraphNode":7,"./SCRate":9,"./SCSynth":10,"./util":174,"./util/fill":172,"nmap":2}],7:[function(require,module,exports){
+},{"./DefaultConfig":5,"./SCGraphNode":7,"./SCRate":9,"./SCSynth":10,"./util":216,"./util/fill":214,"nmap":2}],7:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -560,65 +562,34 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var events = require("events");
 var _doneAction = require("./SCGraphNodeDoneAction");
 
+var STATE_CLOSED = 0;
+var STATE_RUNNING = 1;
+var STATE_SUSPENDED = 2;
+var STATES = ["closed", "running", "suspended"];
+
 var SCGraphNode = function (_events$EventEmitter) {
   _inherits(SCGraphNode, _events$EventEmitter);
 
-  function SCGraphNode() {
+  function SCGraphNode(context) {
     _classCallCheck(this, SCGraphNode);
 
     var _this = _possibleConstructorReturn(this, Object.getPrototypeOf(SCGraphNode).call(this));
 
+    _this.context = context;
     _this.parent = null;
     _this.prev = null;
     _this.next = null;
     _this.head = null;
     _this.tail = null;
 
-    _this._running = true;
+    _this._state = STATE_RUNNING;
     return _this;
   }
 
   _createClass(SCGraphNode, [{
-    key: "start",
-    value: function start() {
-      if (!this._running) {
-        this._running = true;
-        this.emit("statechange");
-      }
-      return this;
-    }
-  }, {
-    key: "stop",
-    value: function stop() {
-      if (this._running) {
-        this._running = false;
-        this.emit("statechange");
-      }
-      return this;
-    }
-  }, {
-    key: "addToHead",
-    value: function addToHead(node) {
-      if (node.parent || node.prev || node.next) {
-        throw new TypeError("node is already a partially element of another graph");
-      }
-      node.parent = this;
-      node.prev = null;
-      node.next = this.head;
-      if (this.head) {
-        this.head.prev = node;
-        this.head = node;
-      } else {
-        this.head = this.tail = node;
-      }
-      node.emit("statechange");
-    }
-  }, {
-    key: "addToTail",
-    value: function addToTail(node) {
-      if (node.parent || node.prev || node.next) {
-        throw new TypeError("node is already a partially element of another graph");
-      }
+    key: "append",
+    value: function append(node) {
+      this._checkNode(node);
       node.parent = this;
       node.prev = this.tail;
       node.next = null;
@@ -628,14 +599,39 @@ var SCGraphNode = function (_events$EventEmitter) {
       } else {
         this.head = this.tail = node;
       }
-      node.emit("statechange");
+      return this;
     }
   }, {
-    key: "addBefore",
-    value: function addBefore(node) {
-      if (node.parent || node.prev || node.next) {
-        throw new TypeError("node is already a partially element of another graph");
+    key: "appendTo",
+    value: function appendTo(node) {
+      node.append(this);
+      return this;
+    }
+  }, {
+    key: "prepend",
+    value: function prepend(node) {
+      this._checkNode(node);
+      node.parent = this;
+      node.prev = null;
+      node.next = this.head;
+      if (this.head) {
+        this.head.prev = node;
+        this.head = node;
+      } else {
+        this.head = this.tail = node;
       }
+      return this;
+    }
+  }, {
+    key: "prependTo",
+    value: function prependTo(node) {
+      node.prepend(this);
+      return this;
+    }
+  }, {
+    key: "before",
+    value: function before(node) {
+      this._checkNode(node);
       node.parent = this.parent;
       node.prev = this.prev;
       node.next = this;
@@ -645,14 +641,18 @@ var SCGraphNode = function (_events$EventEmitter) {
         node.parent.head = node;
       }
       this.prev = node;
-      node.emit("statechange");
+      return this;
     }
   }, {
-    key: "addAfter",
-    value: function addAfter(node) {
-      if (node.parent || node.prev || node.next) {
-        throw new TypeError("node is already a partially element of another graph");
-      }
+    key: "insertBefore",
+    value: function insertBefore(node) {
+      node.before(this);
+      return this;
+    }
+  }, {
+    key: "after",
+    value: function after(node) {
+      this._checkNode(node);
       node.parent = this.parent;
       node.prev = this;
       node.next = this.next;
@@ -662,17 +662,23 @@ var SCGraphNode = function (_events$EventEmitter) {
         node.parent.tail = node;
       }
       this.next = node;
-      node.emit("statechange");
+      return this;
+    }
+  }, {
+    key: "insertAfter",
+    value: function insertAfter(node) {
+      node.after(this);
+      return this;
     }
   }, {
     key: "replace",
     value: function replace(node) {
-      node.addAfter(this);
-      node.close();
+      node.after(this).remove();
+      return this;
     }
   }, {
-    key: "close",
-    value: function close() {
+    key: "remove",
+    value: function remove() {
       if (this.prev) {
         this.prev.next = this.next;
       }
@@ -692,8 +698,35 @@ var SCGraphNode = function (_events$EventEmitter) {
       this.next = null;
       this.head = null;
       this.tail = null;
-
-      this.emit("statechange");
+      return this;
+    }
+  }, {
+    key: "suspend",
+    value: function suspend() {
+      if (this._state === STATE_RUNNING) {
+        this._state = STATE_SUSPENDED;
+        this.emit("statechange");
+      }
+      return this;
+    }
+  }, {
+    key: "resume",
+    value: function resume() {
+      if (this._state === STATE_SUSPENDED) {
+        this._state = STATE_RUNNING;
+        this.emit("statechange");
+      }
+      return this;
+    }
+  }, {
+    key: "close",
+    value: function close() {
+      if (this._state !== STATE_CLOSED) {
+        this.remove();
+        this._state = STATE_CLOSED;
+        this.emit("statechange");
+      }
+      return this;
     }
   }, {
     key: "closeAll",
@@ -705,6 +738,7 @@ var SCGraphNode = function (_events$EventEmitter) {
         node = next;
       }
       this.close();
+      return this;
     }
   }, {
     key: "closeDeep",
@@ -716,6 +750,7 @@ var SCGraphNode = function (_events$EventEmitter) {
         node = next;
       }
       this.close();
+      return this;
     }
   }, {
     key: "doneAction",
@@ -727,7 +762,7 @@ var SCGraphNode = function (_events$EventEmitter) {
   }, {
     key: "process",
     value: function process(inNumSamples) {
-      if (this._running) {
+      if (this._state === STATE_RUNNING) {
         if (this.head) {
           this.head.process(inNumSamples);
         }
@@ -739,10 +774,23 @@ var SCGraphNode = function (_events$EventEmitter) {
         this.next.process(inNumSamples);
       }
     }
+
+    // FIXME: rename!!!
+
+  }, {
+    key: "_checkNode",
+    value: function _checkNode(node) {
+      if (node.context !== this.context) {
+        throw new TypeError("cannot append to a node belonging to a different context");
+      }
+      if (node.parent || node.prev || node.next) {
+        throw new TypeError("node is already a partially element of another graph");
+      }
+    }
   }, {
     key: "state",
     get: function get() {
-      return this.parent !== null ? this._running ? "running" : "suspended" : "closed";
+      return STATES[this._state];
     }
   }]);
 
@@ -760,7 +808,7 @@ doneAction[0] = null;
 
 // pause the enclosing synth, but do not free it
 doneAction[1] = function (node) {
-  node.stop();
+  node.suspend();
 };
 
 // free the enclosing synth
@@ -823,7 +871,7 @@ doneAction[8] = function (node) {
 // free this synth and pause the preceding node
 doneAction[9] = function (node) {
   if (node.prev) {
-    node.prev.stop();
+    node.prev.suspend();
   }
   node.close();
 };
@@ -831,7 +879,7 @@ doneAction[9] = function (node) {
 // free this synth and pause the following node
 doneAction[10] = function (node) {
   if (node.next) {
-    node.next.stop();
+    node.next.suspend();
   }
   node.close();
 };
@@ -917,9 +965,8 @@ var SCSynth = function (_SCGraphNode) {
   function SCSynth(context) {
     _classCallCheck(this, SCSynth);
 
-    var _this = _possibleConstructorReturn(this, Object.getPrototypeOf(SCSynth).call(this));
+    var _this = _possibleConstructorReturn(this, Object.getPrototypeOf(SCSynth).call(this, context));
 
-    _this.context = context;
     _this.synthdef = null;
     _this.paramIndices = null;
     _this.consts = null;
@@ -1187,7 +1234,7 @@ var SCUnitRepository = require("./SCUnitRepository");
 var unit = require("./unit");
 
 module.exports = { Constants: Constants, SCContext: SCContext, SCGraphNode: SCGraphNode, SCSynth: SCSynth, SCUnit: SCUnit, SCUnitRepository: SCUnitRepository, unit: unit };
-},{"./Constants":4,"./SCContext":6,"./SCGraphNode":7,"./SCSynth":10,"./SCUnit":12,"./SCUnitRepository":13,"./unit":170}],15:[function(require,module,exports){
+},{"./Constants":4,"./SCContext":6,"./SCGraphNode":7,"./SCSynth":10,"./SCUnit":12,"./SCUnitRepository":13,"./unit":212}],15:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1214,17 +1261,19 @@ var SCUnitA2K = function (_SCUnit) {
   _createClass(SCUnitA2K, [{
     key: "initialize",
     value: function initialize() {
-      this.dspProcess = dspProcess["next"];
+      this.dspProcess = dspProcess["a"];
     }
   }]);
 
   return SCUnitA2K;
 }(SCUnit);
 
-dspProcess["next"] = function () {
+dspProcess["a"] = function () {
   this.outputs[0][0] = this.inputs[0][0];
 };
+
 SCUnitRepository.registerSCUnitClass("A2K", SCUnitA2K);
+
 module.exports = SCUnitA2K;
 },{"../SCUnit":12,"../SCUnitRepository":13}],16:[function(require,module,exports){
 "use strict";
@@ -1444,7 +1493,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("AllpassC", SCUnitAllpassC);
 module.exports = SCUnitAllpassC;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/sc_cubicinterp":175,"../util/toPowerOfTwo":179,"./_delay":167}],18:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"../util/sc_cubicinterp":217,"../util/toPowerOfTwo":223,"./_delay":209}],18:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1563,7 +1612,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("AllpassL", SCUnitAllpassL);
 module.exports = SCUnitAllpassL;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179,"./_delay":167}],19:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"../util/toPowerOfTwo":223,"./_delay":209}],19:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1674,7 +1723,292 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("AllpassN", SCUnitAllpassN);
 module.exports = SCUnitAllpassN;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179,"./_delay":167}],20:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"../util/toPowerOfTwo":223,"./_delay":209}],20:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var SCUnitAmpComp = function (_SCUnit) {
+  _inherits(SCUnitAmpComp, _SCUnit);
+
+  function SCUnitAmpComp() {
+    _classCallCheck(this, SCUnitAmpComp);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitAmpComp).apply(this, arguments));
+  }
+
+  _createClass(SCUnitAmpComp, [{
+    key: "initialize",
+    value: function initialize() {
+
+      if (this.inputSpecs[1].rate === C.RATE_SCALAR && this.inputSpecs[2].rate === C.RATE_SCALAR) {
+        this.dspProcess = dspProcess["aii"];
+
+        var exp = this.inputs[2][0];
+
+        this._rootmul = Math.pow(this.inputs[1][0], exp) || 0;
+        this._exponent = -1 * exp;
+      } else {
+        this.dspProcess = dspProcess["akk"];
+      }
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitAmpComp;
+}(SCUnit);
+
+dspProcess["akk"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var freqIn = this.inputs[0];
+  var root = this.inputs[1][0];
+  var xb = this.inputs[2][0];
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var xa = root / freqIn[i];
+
+    out[i] = xa >= 0 ? Math.pow(xa, xb) : -Math.pow(-xa, xb);
+  }
+};
+
+dspProcess["aii"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var freqIn = this.inputs[0];
+  var rootmul = this._rootmul;
+  var xb = this._exponent;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var xa = freqIn[i];
+
+    out[i] = (xa >= 0 ? Math.pow(xa, xb) : -Math.pow(-xa, xb)) * rootmul;
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("AmpComp", SCUnitAmpComp);
+
+module.exports = SCUnitAmpComp;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],21:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var AMPCOMP_K = 3.5041384 * 10e15;
+var AMPCOMP_C1 = 20.598997 * 20.598997;
+var AMPCOMP_C2 = 107.65265 * 107.65265;
+var AMPCOMP_C3 = 737.86223 * 737.86223;
+var AMPCOMP_C4 = 12194.217 * 12194.217;
+var AMPCOMP_MINLEVEL = -0.1575371167435;
+
+var SCUnitAmpCompA = function (_SCUnit) {
+  _inherits(SCUnitAmpCompA, _SCUnit);
+
+  function SCUnitAmpCompA() {
+    _classCallCheck(this, SCUnitAmpCompA);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitAmpCompA).apply(this, arguments));
+  }
+
+  _createClass(SCUnitAmpCompA, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["aiii"];
+
+      var rootFreq = this.inputs[1][0];
+      var rootLevel = calcLevel(rootFreq);
+      var minLevel = this.inputs[2][0];
+
+      this._scale = (this.inputs[3][0] - minLevel) / (rootLevel - AMPCOMP_MINLEVEL);
+      this._offset = minLevel - this._scale * AMPCOMP_MINLEVEL;
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitAmpCompA;
+}(SCUnit);
+
+function calcLevel(freq) {
+  var r = freq * freq;
+  var n1 = AMPCOMP_C1 + r;
+  var n2 = AMPCOMP_C4 + r;
+
+  var level = AMPCOMP_K * r * r * r * r;
+
+  level = level / (n1 * n1 * (AMPCOMP_C2 + r) * (AMPCOMP_C3 + r) * n2 * n2);
+  level = 1 - Math.sqrt(level);
+
+  return level;
+}
+
+dspProcess["aiii"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var freqIn = this.inputs[0];
+  var scale = this._scale;
+  var offset = this._offset;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    out[i] = calcLevel(freqIn[i]) * scale + offset;
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("AmpCompA", SCUnitAmpCompA);
+
+module.exports = SCUnitAmpCompA;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],22:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var log1 = Math.log(0.1);
+
+var SCUnitAmplitude = function (_SCUnit) {
+  _inherits(SCUnitAmplitude, _SCUnit);
+
+  function SCUnitAmplitude() {
+    _classCallCheck(this, SCUnitAmplitude);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitAmplitude).apply(this, arguments));
+  }
+
+  _createClass(SCUnitAmplitude, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      if (this.calcRate !== C.RATE_AUDIO && this.inputSpecs[0].rate === C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["akk/atok"];
+      } else {
+        this.dspProcess = dspProcess["akk"];
+      }
+
+      var clamp = this.inputs[1][0];
+      var relax = this.inputs[2][0];
+
+      this._sampleRate = rate.sampleRate;
+      this._fullBufferLength = this.context.aRate.bufferLength;
+      this._clampCoef = clamp ? Math.exp(log1 / (clamp * this._sampleRate)) : 0;
+      this._relaxCoef = relax ? Math.exp(log1 / (relax * this._sampleRate)) : 0;
+      this._prevClamp = clamp;
+      this._prevRelax = relax;
+      this._prevIn = Math.abs(this.inputs[0][0]);
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitAmplitude;
+}(SCUnit);
+
+dspProcess["akk"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var clamp = this.inputs[1][0];
+  var relax = this.inputs[2][0];
+
+  if (clamp !== this._prevClamp) {
+    this._clampCoef = clamp ? Math.exp(log1 / (clamp * this._sampleRate)) : 0;
+    this._prevClamp = clamp;
+  }
+  if (relax !== this._prevRelax) {
+    this._relaxCoef = relax ? Math.exp(log1 / (relax * this._sampleRate)) : 0;
+    this._prevRelax = relax;
+  }
+
+  var clampCoef = this._clampCoef;
+  var relaxCoef = this._relaxCoef;
+
+  var val = 0;
+  var prevIn = this._prevIn;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    val = Math.abs(inIn[i]);
+
+    if (val < prevIn) {
+      val += (prevIn - val) * relaxCoef;
+    } else {
+      val += (prevIn - val) * clampCoef;
+    }
+
+    out[i] = prevIn = val;
+  }
+
+  this._prevIn = prevIn;
+};
+
+dspProcess["akk/atok"] = function (inNumSamples) {
+  var inIn = this.inputs[0];
+  var clamp = this.inputs[1][0];
+  var relax = this.inputs[2][0];
+
+  if (clamp !== this._prevClamp) {
+    this._clampCoef = clamp ? Math.exp(log1 / (clamp * this._sampleRate)) : 0;
+    this._prevClamp = clamp;
+  }
+  if (relax !== this._prevRelax) {
+    this._relaxCoef = relax ? Math.exp(log1 / (relax * this._sampleRate)) : 0;
+    this._prevRelax = relax;
+  }
+
+  var clampCoef = this._clampCoef;
+  var relaxCoef = this._relaxCoef;
+
+  var val = 0;
+  var prevIn = this._prevIn;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    val = Math.abs(inIn[i]);
+
+    if (val < prevIn) {
+      val += (prevIn - val) * relaxCoef;
+    } else {
+      val += (prevIn - val) * clampCoef;
+    }
+
+    prevIn = val;
+  }
+
+  this.outputs[0][0] = val;
+  this._prevIn = prevIn;
+};
+
+SCUnitRepository.registerSCUnitClass("Amplitude", SCUnitAmplitude);
+
+module.exports = SCUnitAmplitude;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],23:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1763,7 +2097,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("BPF", SCUnitBPF);
 module.exports = SCUnitBPF;
-},{"../SCUnit":12,"../SCUnitRepository":13}],21:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],24:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1816,7 +2150,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("BPZ2", SCUnitBPZ2);
 module.exports = SCUnitBPZ2;
-},{"../SCUnit":12,"../SCUnitRepository":13}],22:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],25:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1907,7 +2241,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("BRF", SCUnitBRF);
 module.exports = SCUnitBRF;
-},{"../SCUnit":12,"../SCUnitRepository":13}],23:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],26:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1960,7 +2294,144 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("BRZ2", SCUnitBRZ2);
 module.exports = SCUnitBRZ2;
-},{"../SCUnit":12,"../SCUnitRepository":13}],24:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],27:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var clamp = require("../util/clamp");
+var sine = require("./_sine");
+
+var gSine = sine.gSine;
+var dspProcess = {};
+
+var SCUnitBalance2 = function (_SCUnit) {
+  _inherits(SCUnitBalance2, _SCUnit);
+
+  function SCUnitBalance2() {
+    _classCallCheck(this, SCUnitBalance2);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitBalance2).apply(this, arguments));
+  }
+
+  _createClass(SCUnitBalance2, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      if (this.inputSpecs[2].rate === C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["aaak"];
+      } else {
+        this.dspProcess = dspProcess["aakk"];
+      }
+
+      var ipos = void 0;
+
+      this._slopeFactor = rate.slopeFactor;
+      this._pos = this.inputs[2][0];
+      this._level = this.inputs[3][0];
+
+      ipos = 1024 * this._pos + 1024 + 0.5 | 0;
+      ipos = clamp(ipos, 0, 2048);
+
+      this._leftAmp = this._level * gSine[2048 - ipos];
+      this._rightAmp = this._level * gSine[ipos];
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitBalance2;
+}(SCUnit);
+
+dspProcess["aaak"] = function (inNumSamples) {
+  var leftOut = this.outputs[0];
+  var rightOut = this.outputs[1];
+  var leftIn = this.inputs[0];
+  var rightIn = this.inputs[1];
+  var posIn = this.inputs[2];
+  var level = this._level;
+  var next_level = this.inputs[3][0];
+
+  var ipos = void 0;
+
+  if (level !== next_level) {
+    var level_slope = (next_level - level) * this._slopeFactor;
+
+    for (var i = 0; i < inNumSamples; i++) {
+      ipos = 1024 * posIn[i] + 1024 + 0.5 | 0;
+      ipos = clamp(ipos, 0, 2048);
+
+      var amp = level + level_slope * i;
+      var leftAmp = amp * gSine[2048 - ipos];
+      var rightAmp = amp * gSine[ipos];
+
+      leftOut[i] = leftIn[i] * leftAmp;
+      rightOut[i] = rightIn[i] * rightAmp;
+    }
+
+    this._level = next_level;
+  } else {
+    for (var _i = 0; _i < inNumSamples; _i++) {
+      ipos = 1024 * posIn[_i] + 1024 + 0.5 | 0;
+      ipos = clamp(ipos, 0, 2048);
+
+      leftOut[_i] = leftIn[_i] * level * gSine[2048 - ipos];
+      rightOut[_i] = rightIn[_i] * level * gSine[ipos];
+    }
+  }
+};
+
+dspProcess["aakk"] = function (inNumSamples) {
+  var leftOut = this.outputs[0];
+  var rightOut = this.outputs[1];
+  var leftIn = this.inputs[0];
+  var rightIn = this.inputs[1];
+  var next_pos = this.inputs[2][0];
+  var next_level = this.inputs[3][0];
+  var leftAmp = this._leftAmp;
+  var rightAmp = this._rightAmp;
+
+  var ipos = void 0;
+
+  if (this._pos !== next_pos || this._level !== next_level) {
+    ipos = 1024 * next_pos + 1024 + 0.5 | 0;
+    ipos = clamp(ipos, 0, 2048);
+
+    var next_leftAmp = next_level * gSine[2048 - ipos];
+    var next_rightAmp = next_level * gSine[ipos];
+    var leftAmp_slope = (next_leftAmp - this._leftAmp) * this._slopeFactor;
+    var rightAmp_slope = (next_rightAmp - this._rightAmp) * this._slopeFactor;
+
+    for (var i = 0; i < inNumSamples; i++) {
+      leftOut[i] = leftIn[i] * (leftAmp + leftAmp_slope * i);
+      rightOut[i] = rightIn[i] * (rightAmp + rightAmp_slope * i);
+    }
+
+    this._pos = next_pos;
+    this._level = next_level;
+    this._leftAmp = next_leftAmp;
+    this._rightAmp = next_rightAmp;
+  } else {
+    for (var _i2 = 0; _i2 < inNumSamples; _i2++) {
+      leftOut[_i2] = leftIn[_i2] * leftAmp;
+      rightOut[_i2] = rightIn[_i2] * rightAmp;
+    }
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("Balance2", SCUnitBalance2);
+
+module.exports = SCUnitBalance2;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"./_sine":211}],28:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -1977,7 +2448,9 @@ var SCUnitRepository = require("../SCUnitRepository");
 var demand = require("./_demand");
 var sc_wrap = require("../util/sc_wrap");
 var sc_fold = require("../util/sc_fold");
-var $i2n = "\n+ - * / / % eq ne lt gt le ge min max bitAnd bitOr bitXor lcm gcd round roundUp trunc atan2 hypot\nhypotApx pow leftShift rightShift unsignedRightShift fill ring1 ring2 ring3 ring4 difsqr sumsqr\nsqrsum sqrdif absdif thresh amclip scaleneg clip2 excess fold2 wrap2 firstarg randrange exprandrange\nnumbinaryselectors roundDown".trim().split(/\s/);
+var sc_exprandrange = require("../util/sc_exprandrange");
+var sc_randrange = require("../util/sc_randrange");
+var $i2n = "\n+ - * / / % eq ne lt gt le ge min max bitAnd bitOr bitXor lcm gcd round roundUp trunc atan2 hypot\nhypotApx pow leftShift rightShift unsignedRightShift fill ring1 ring2 ring3 ring4 difsqr sumsqr\nsqrsum sqrdif absdif thresh amclip scaleneg clip2 excess fold2 wrap2 firstarg randrange exprandrange\nnumbinaryselectors".trim().split(/\s/);
 var dspProcess = {};
 
 var SCUnitBinaryOpUGen = function (_SCUnit) {
@@ -1993,21 +2466,21 @@ var SCUnitBinaryOpUGen = function (_SCUnit) {
     key: "initialize",
     value: function initialize(rate) {
       var dspFunc = dspProcess[$i2n[this.specialIndex]];
+
       if (!dspFunc) {
         throw new Error("BinaryOpUGen[" + $i2n[this.specialIndex] + "] is not defined.");
       }
-      this._slopeFactor = rate.slopeFactor;
+
       if (this.calcRate === C.RATE_DEMAND) {
         this.dspProcess = dspFunc["dd"];
       } else {
-        this.dspProcess = dspFunc[$r2k(this.inputSpecs)];
+        this.dspProcess = dspFunc[$r2k(this)];
+
+        this._slopeFactor = rate.slopeFactor;
         this._a = this.inputs[0][0];
         this._b = this.inputs[1][0];
-        if (this.dspProcess) {
-          this.dspProcess(1);
-        } else {
-          this.outputs[0][0] = dspFunc(this._a, this._b);
-        }
+
+        this.outputs[0][0] = dspFunc(this._a, this._b);
       }
     }
   }]);
@@ -2015,21 +2488,28 @@ var SCUnitBinaryOpUGen = function (_SCUnit) {
   return SCUnitBinaryOpUGen;
 }(SCUnit);
 
-function $r2k(inputSpecs) {
-  return inputSpecs.map(function (x) {
-    return x.rate === C.RATE_AUDIO ? "a" : x.rate === C.RATE_SCALAR ? "i" : "k";
+function $r2k(unit) {
+  return unit.inputSpecs.map(function (_ref) {
+    var rate = _ref.rate;
+
+    if (rate === C.RATE_AUDIO) {
+      return "a";
+    }
+    return rate === C.RATE_SCALAR ? "i" : "k";
   }).join("");
 }
+
 function gcd(a, b) {
   a = Math.floor(a);
   b = Math.floor(b);
   while (b !== 0) {
-    var _ref = [b, a % b];
-    a = _ref[0];
-    b = _ref[1];
+    var _ref2 = [b, a % b];
+    a = _ref2[0];
+    b = _ref2[1];
   }
   return Math.abs(a);
 }
+
 dspProcess["+"] = function (a, b) {
   return a + b;
 };
@@ -2063,6 +2543,12 @@ dspProcess["le"] = function (a, b) {
 dspProcess["ge"] = function (a, b) {
   return a >= b ? 1 : 0;
 };
+dspProcess["min"] = function (a, b) {
+  return Math.min(a, b);
+};
+dspProcess["max"] = function (a, b) {
+  return Math.max(a, b);
+};
 dspProcess["bitAnd"] = function (a, b) {
   return a & b;
 };
@@ -2071,12 +2557,6 @@ dspProcess["bitOr"] = function (a, b) {
 };
 dspProcess["bitXor"] = function (a, b) {
   return a ^ b;
-};
-dspProcess["min"] = function (a, b) {
-  return Math.min(a, b);
-};
-dspProcess["max"] = function (a, b) {
-  return Math.max(a, b);
 };
 dspProcess["lcm"] = function (a, b) {
   if (a === 0 && b === 0) {
@@ -2093,9 +2573,6 @@ dspProcess["round"] = function (a, b) {
 dspProcess["roundUp"] = function (a, b) {
   return b === 0 ? a : Math.ceil(a / b) * b;
 };
-dspProcess["roundDown"] = function (a, b) {
-  return b === 0 ? a : Math.floor(a / b) * b;
-};
 dspProcess["trunc"] = function (a, b) {
   return b === 0 ? a : Math.floor(a / b) * b;
 };
@@ -2103,12 +2580,13 @@ dspProcess["atan2"] = function (a, b) {
   return Math.atan2(a, b);
 };
 dspProcess["hypot"] = function (a, b) {
-  return Math.sqrt(a * a + b * b);
+  return Math.hypot(a, b);
 };
 dspProcess["hypotApx"] = function (a, b) {
   var x = Math.abs(a);
   var y = Math.abs(b);
   var minxy = Math.min(x, y);
+
   return x + y - (Math.sqrt(2) - 1) * minxy;
 };
 dspProcess["pow"] = function (a, b) {
@@ -2132,6 +2610,9 @@ dspProcess["unsignedRightShift"] = function (a, b) {
   }
   return (a | 0) >> (b | 0);
 };
+// dspProcess["fill"] = function(a, b) {
+//   return 0;
+// };
 dspProcess["ring1"] = function (a, b) {
   return a * b + a;
 };
@@ -2181,10 +2662,21 @@ dspProcess["fold2"] = function (val, hi) {
 dspProcess["wrap2"] = function (val, hi) {
   return sc_wrap(val, -hi, hi);
 };
+dspProcess["firstarg"] = function (a) {
+  return a;
+};
+dspProcess["randrange"] = function (a, b) {
+  return sc_randrange(a, b);
+};
+dspProcess["exprandrange"] = function (a, b) {
+  return sc_exprandrange(a, b);
+};
+
 dspProcess["+"]["aa"] = function (inNumSamples) {
   var out = this.outputs[0];
   var aIn = this.inputs[0];
   var bIn = this.inputs[1];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = aIn[i] + bIn[i];
   }
@@ -2193,17 +2685,20 @@ dspProcess["+"]["ak"] = function (inNumSamples) {
   var out = this.outputs[0];
   var aIn = this.inputs[0];
   var b = this._b;
-  var nextB = this.inputs[1][0];
-  var bSlope = (nextB - this._b) * this._slopeFactor;
+  var next_b = this.inputs[1][0];
+  var b_slope = (next_b - this._b) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = aIn[i] + (b + bSlope * i);
+    out[i] = aIn[i] + (b + b_slope * i);
   }
-  this._b = nextB;
+
+  this._b = next_b;
 };
 dspProcess["+"]["ai"] = function (inNumSamples) {
   var out = this.outputs[0];
   var aIn = this.inputs[0];
   var b = this._b;
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = aIn[i] + b;
   }
@@ -2212,12 +2707,14 @@ dspProcess["+"]["ka"] = function (inNumSamples) {
   var out = this.outputs[0];
   var a = this._a;
   var bIn = this.inputs[1];
-  var nextA = this.inputs[0][0];
-  var aSlope = (nextA - this._a) * this._slopeFactor;
+  var next_a = this.inputs[0][0];
+  var a_slope = (next_a - this._a) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = a + aSlope * i + bIn[i];
+    out[i] = a + a_slope * i + bIn[i];
   }
-  this._a = nextA;
+
+  this._a = next_a;
 };
 dspProcess["+"]["kk"] = function () {
   this.outputs[0][0] = this.inputs[0][0] + this.inputs[1][0];
@@ -2229,6 +2726,7 @@ dspProcess["+"]["ia"] = function (inNumSamples) {
   var out = this.outputs[0];
   var a = this._a;
   var bIn = this.inputs[1];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = a + bIn[i];
   }
@@ -2236,10 +2734,12 @@ dspProcess["+"]["ia"] = function (inNumSamples) {
 dspProcess["+"]["ik"] = function () {
   this.outputs[0][0] = this._a + this.inputs[1][0];
 };
+
 dspProcess["-"]["aa"] = function (inNumSamples) {
   var out = this.outputs[0];
   var aIn = this.inputs[0];
   var bIn = this.inputs[1];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = aIn[i] - bIn[i];
   }
@@ -2248,17 +2748,20 @@ dspProcess["-"]["ak"] = function (inNumSamples) {
   var out = this.outputs[0];
   var aIn = this.inputs[0];
   var b = this._b;
-  var nextB = this.inputs[1][0];
-  var bSlope = (nextB - this._b) * this._slopeFactor;
+  var next_b = this.inputs[1][0];
+  var b_slope = (next_b - this._b) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = aIn[i] - (b + bSlope * i);
+    out[i] = aIn[i] - (b + b_slope * i);
   }
-  this._b = nextB;
+
+  this._b = next_b;
 };
 dspProcess["-"]["ai"] = function (inNumSamples) {
   var out = this.outputs[0];
   var aIn = this.inputs[0];
   var b = this._b;
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = aIn[i] - b;
   }
@@ -2267,12 +2770,14 @@ dspProcess["-"]["ka"] = function (inNumSamples) {
   var out = this.outputs[0];
   var a = this._a;
   var bIn = this.inputs[1];
-  var nextA = this.inputs[0][0];
-  var aSlope = (nextA - this._a) * this._slopeFactor;
+  var next_a = this.inputs[0][0];
+  var a_slope = (next_a - this._a) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = a + aSlope * i - bIn[i];
+    out[i] = a + a_slope * i - bIn[i];
   }
-  this._a = nextA;
+
+  this._a = next_a;
 };
 dspProcess["-"]["kk"] = function () {
   this.outputs[0][0] = this.inputs[0][0] - this.inputs[1][0];
@@ -2284,6 +2789,7 @@ dspProcess["-"]["ia"] = function (inNumSamples) {
   var out = this.outputs[0];
   var a = this._a;
   var bIn = this.inputs[1];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = a - bIn[i];
   }
@@ -2291,10 +2797,12 @@ dspProcess["-"]["ia"] = function (inNumSamples) {
 dspProcess["-"]["ik"] = function () {
   this.outputs[0][0] = this._a - this.inputs[1][0];
 };
+
 dspProcess["*"]["aa"] = function (inNumSamples) {
   var out = this.outputs[0];
   var aIn = this.inputs[0];
   var bIn = this.inputs[1];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = aIn[i] * bIn[i];
   }
@@ -2303,17 +2811,19 @@ dspProcess["*"]["ak"] = function (inNumSamples) {
   var out = this.outputs[0];
   var aIn = this.inputs[0];
   var b = this._b;
-  var nextB = this.inputs[1][0];
-  var bSlope = (nextB - this._b) * this._slopeFactor;
+  var next_b = this.inputs[1][0];
+  var b_slope = (next_b - this._b) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = aIn[i] * (b + bSlope * i);
+    out[i] = aIn[i] * (b + b_slope * i);
   }
-  this._b = nextB;
+  this._b = next_b;
 };
 dspProcess["*"]["ai"] = function (inNumSamples) {
   var out = this.outputs[0];
   var aIn = this.inputs[0];
   var b = this._b;
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = aIn[i] * b;
   }
@@ -2322,12 +2832,14 @@ dspProcess["*"]["ka"] = function (inNumSamples) {
   var out = this.outputs[0];
   var a = this._a;
   var bIn = this.inputs[1];
-  var nextA = this.inputs[0][0];
-  var aSlope = (nextA - this._a) * this._slopeFactor;
+  var next_a = this.inputs[0][0];
+  var a_slope = (next_a - this._a) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = (a + aSlope * i) * bIn[i];
+    out[i] = (a + a_slope * i) * bIn[i];
   }
-  this._a = nextA;
+
+  this._a = next_a;
 };
 dspProcess["*"]["kk"] = function () {
   this.outputs[0][0] = this.inputs[0][0] * this.inputs[1][0];
@@ -2339,6 +2851,7 @@ dspProcess["*"]["ia"] = function (inNumSamples) {
   var out = this.outputs[0];
   var a = this._a;
   var bIn = this.inputs[1];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = a * bIn[i];
   }
@@ -2346,82 +2859,99 @@ dspProcess["*"]["ia"] = function (inNumSamples) {
 dspProcess["*"]["ik"] = function () {
   this.outputs[0][0] = this._a * this.inputs[1][0];
 };
+
 function binary_aa(func) {
   return function (inNumSamples) {
     var out = this.outputs[0];
     var aIn = this.inputs[0];
     var bIn = this.inputs[1];
+
     for (var i = 0; i < inNumSamples; i++) {
       out[i] = func(aIn[i], bIn[i]);
     }
   };
 }
+
 function binary_ak(func) {
   return function (inNumSamples) {
     var out = this.outputs[0];
     var aIn = this.inputs[0];
     var b = this._b;
-    var nextB = this.inputs[1][0];
-    var bSlope = (nextB - this._b) * this._slopeFactor;
+    var next_b = this.inputs[1][0];
+    var b_slope = (next_b - this._b) * this._slopeFactor;
+
     for (var i = 0; i < inNumSamples; i++) {
-      out[i] = func(aIn[i], b + bSlope * i);
+      out[i] = func(aIn[i], b + b_slope * i);
     }
-    this._b = nextB;
+
+    this._b = next_b;
   };
 }
+
 function binary_ai(func) {
   return function (inNumSamples) {
     var out = this.outputs[0];
     var aIn = this.inputs[0];
     var b = this._b;
+
     for (var i = 0; i < inNumSamples; i++) {
       out[i] = func(aIn[i], b);
     }
   };
 }
+
 function binary_ka(func) {
   return function (inNumSamples) {
     var out = this.outputs[0];
     var a = this._a;
     var bIn = this.inputs[1];
-    var nextA = this.inputs[0][0];
-    var aSlope = (nextA - this._a) * this._slopeFactor;
+    var next_a = this.inputs[0][0];
+    var a_slope = (next_a - this._a) * this._slopeFactor;
+
     for (var i = 0; i < inNumSamples; i += 8) {
-      out[i] = func(a + aSlope * i, bIn[i]);
+      out[i] = func(a + a_slope * i, bIn[i]);
     }
-    this._a = nextA;
+
+    this._a = next_a;
   };
 }
+
 function binary_kk(func) {
   return function () {
     this.outputs[0][0] = func(this.inputs[0][0], this.inputs[1][0]);
   };
 }
+
 function binary_ki(func) {
   return function () {
     this.outputs[0][0] = func(this.inputs[0][0], this._b);
   };
 }
+
 function binary_ia(func) {
   return function (inNumSamples) {
     var out = this.outputs[0];
     var a = this._a;
     var bIn = this.inputs[1];
+
     for (var i = 0; i < inNumSamples; i++) {
       out[i] = func(a, bIn[i]);
     }
   };
 }
+
 function binary_ik(func) {
   return function () {
     this.outputs[0][0] = func(this._a, this.inputs[1][0]);
   };
 }
+
 function binary_dd(func) {
   return function (inNumSamples) {
     if (inNumSamples) {
       var a = demand.next(this, 0, inNumSamples);
       var b = demand.next(this, 1, inNumSamples);
+
       this.outputs[0][0] = isNaN(a) || isNaN(b) ? NaN : func(a, b);
     } else {
       demand.reset(this, 0);
@@ -2429,8 +2959,10 @@ function binary_dd(func) {
     }
   };
 }
+
 Object.keys(dspProcess).forEach(function (key) {
   var func = dspProcess[key];
+
   func["aa"] = func["aa"] || binary_aa(func);
   func["ak"] = func["ak"] || binary_ak(func);
   func["ai"] = func["ai"] || binary_ai(func);
@@ -2441,9 +2973,11 @@ Object.keys(dspProcess).forEach(function (key) {
   func["ik"] = func["ik"] || binary_ik(func);
   func["dd"] = binary_dd(func);
 });
+
 SCUnitRepository.registerSCUnitClass("BinaryOpUGen", SCUnitBinaryOpUGen);
+
 module.exports = SCUnitBinaryOpUGen;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_fold":176,"../util/sc_wrap":177,"./_demand":168}],25:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_exprandrange":218,"../util/sc_fold":219,"../util/sc_randrange":220,"../util/sc_wrap":221,"./_demand":210}],29:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -2645,7 +3179,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Blip", SCUnitBlip);
 module.exports = SCUnitBlip;
-},{"../SCUnit":12,"../SCUnitRepository":13,"./_sine":169}],26:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"./_sine":211}],30:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -2697,7 +3231,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("BrownNoise", SCUnitBrownNoise);
 module.exports = SCUnitBrownNoise;
-},{"../SCUnit":12,"../SCUnitRepository":13}],27:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],31:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -2772,7 +3306,7 @@ dspProcess["next_kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Clip", SCUnitClip);
 module.exports = SCUnitClip;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],28:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],32:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -2815,7 +3349,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("ClipNoise", SCUnitClipNoise);
 module.exports = SCUnitClipNoise;
-},{"../SCUnit":12,"../SCUnitRepository":13}],29:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],33:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -2886,7 +3420,7 @@ dspProcess["next_k"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("CoinGate", SCUnitCoinGate);
 module.exports = SCUnitCoinGate;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],30:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],34:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3007,7 +3541,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("CombC", SCUnitCombC);
 module.exports = SCUnitCombC;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/sc_cubicinterp":175,"../util/toPowerOfTwo":179,"./_delay":167}],31:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"../util/sc_cubicinterp":217,"../util/toPowerOfTwo":223,"./_delay":209}],35:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3121,7 +3655,7 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("CombL", SCUnitCombL);
 module.exports = SCUnitCombL;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179,"./_delay":167}],32:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"../util/toPowerOfTwo":223,"./_delay":209}],36:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3229,7 +3763,125 @@ dspProcess["kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("CombN", SCUnitCombN);
 module.exports = SCUnitCombN;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179,"./_delay":167}],33:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"../util/toPowerOfTwo":223,"./_delay":209}],37:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var log1 = Math.log(0.1);
+
+var SCUnitCompander = function (_SCUnit) {
+  _inherits(SCUnitCompander, _SCUnit);
+
+  function SCUnitCompander() {
+    _classCallCheck(this, SCUnitCompander);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitCompander).apply(this, arguments));
+  }
+
+  _createClass(SCUnitCompander, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      this.dspProcess = dspProcess["aakkkkk"];
+
+      this._sampleRate = rate.sampleRate;
+      this._slopeFactor = rate.slopeFactor;
+      this._clamp = 0;
+      this._relax = 0;
+      this._clampCoef = 0;
+      this._relaxCoef = 0;
+      this._prevMaxVal = 0;
+      this._gain = 0;
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitCompander;
+}(SCUnit);
+
+dspProcess["aakkkkk"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var controlIn = this.inputs[1];
+  var thresh = this.inputs[2][0];
+  var slope_below = this.inputs[3][0];
+  var slope_above = this.inputs[4][0];
+  var clamp = this.inputs[5][0];
+  var relax = this.inputs[6][0];
+
+  if (clamp !== this._prevClamp) {
+    this._clampCoef = clamp ? Math.exp(log1 / (clamp * this._sampleRate)) : 0;
+    this._prevClamp = clamp;
+  }
+  if (relax !== this._prevRelax) {
+    this._relaxCoef = relax ? Math.exp(log1 / (relax * this._sampleRate)) : 0;
+    this._prevRelax = relax;
+  }
+
+  var clampCoef = this._clampCoef;
+  var relaxCoef = this._relaxCoef;
+
+  var prevMaxVal = this._prevMaxVal;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var val = Math.abs(controlIn[i]);
+
+    if (val < prevMaxVal) {
+      val += (prevMaxVal - val) * relaxCoef;
+    } else {
+      val += (prevMaxVal - val) * clampCoef;
+    }
+
+    prevMaxVal = val;
+  }
+
+  this._prevMaxVal = prevMaxVal;
+
+  var next_gain = void 0;
+
+  if (prevMaxVal < thresh) {
+    if (slope_below === 1) {
+      next_gain = 1;
+    } else {
+      next_gain = Math.pow(prevMaxVal / thresh, slope_below - 1);
+      var absx = Math.abs(next_gain);
+
+      next_gain = (absx < 1e-15 ? 0 : 1e15 < absx ? 1 : next_gain) || 0;
+    }
+  } else {
+    if (slope_above === 1) {
+      next_gain = 1;
+    } else {
+      next_gain = Math.pow(prevMaxVal / thresh, slope_above - 1) || 0;
+    }
+  }
+
+  var gain = this._gain;
+  var gain_slope = (next_gain - gain) * this._slopeFactor;
+
+  for (var _i = 0; _i < inNumSamples; _i++) {
+    out[_i] = inIn[_i] * (gain + gain_slope * _i);
+  }
+
+  this._gain = next_gain;
+};
+
+SCUnitRepository.registerSCUnitClass("Compander", SCUnitCompander);
+
+module.exports = SCUnitCompander;
+},{"../SCUnit":12,"../SCUnitRepository":13}],38:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3283,7 +3935,7 @@ dspProcess["k"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("Control", SCUnitControl);
 module.exports = SCUnitControl;
-},{"../SCUnit":12,"../SCUnitRepository":13}],34:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],39:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3318,7 +3970,7 @@ var SCUnitControlDur = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("ControlDur", SCUnitControlDur);
 module.exports = SCUnitControlDur;
-},{"../SCUnit":12,"../SCUnitRepository":13}],35:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],40:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3353,7 +4005,7 @@ var SCUnitControlRate = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("ControlRate", SCUnitControlRate);
 module.exports = SCUnitControlRate;
-},{"../SCUnit":12,"../SCUnitRepository":13}],36:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],41:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3406,7 +4058,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Crackle", SCUnitCrackle);
 module.exports = SCUnitCrackle;
-},{"../SCUnit":12,"../SCUnitRepository":13}],37:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],42:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3443,7 +4095,103 @@ var SCUnitDC = function (_SCUnit) {
 SCUnitRepository.registerSCUnitClass("DC", SCUnitDC);
 
 module.exports = SCUnitDC;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],38:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":214}],43:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var sc_fold = require("../util/sc_fold");
+var dspProcess = {};
+
+var SCUnitDbrown = function (_SCUnit) {
+  _inherits(SCUnitDbrown, _SCUnit);
+
+  function SCUnitDbrown() {
+    _classCallCheck(this, SCUnitDbrown);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDbrown).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDbrown, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+
+      this._lo = 0;
+      this._hi = 0;
+      this._step = 0;
+      this._value = 0;
+
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+    }
+  }]);
+
+  return SCUnitDbrown;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  var lo = demand.next(this, 1, inNumSamples);
+  var hi = demand.next(this, 2, inNumSamples);
+  var step = demand.next(this, 3, inNumSamples);
+
+  if (!Number.isNaN(lo)) {
+    this._lo = lo;
+  }
+  if (!Number.isNaN(hi)) {
+    this._hi = hi;
+  }
+  if (!Number.isNaN(step)) {
+    this._step = step;
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+    this._value = Math.random() * (this._hi - this._lo) + this._lo;
+  }
+
+  var out = this.outputs[0];
+
+  if (this._repeats <= this._repeatCount) {
+    out[0] = NaN;
+    return;
+  }
+
+  this._repeatCount += 1;
+
+  out[0] = this._value;
+
+  var value = this._value + (Math.random() * 2 - 1) * this._step;
+
+  this._value = sc_fold(value, this._lo, this._hi);
+};
+
+SCUnitRepository.registerSCUnitClass("Dbrown", SCUnitDbrown);
+
+module.exports = SCUnitDbrown;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_fold":219,"./_demand":210}],44:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3507,7 +4255,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Decay", SCUnitDecay);
 module.exports = SCUnitDecay;
-},{"../SCUnit":12,"../SCUnitRepository":13}],39:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],45:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3586,7 +4334,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Decay2", SCUnitDecay2);
 module.exports = SCUnitDecay2;
-},{"../SCUnit":12,"../SCUnitRepository":13}],40:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],46:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3642,7 +4390,7 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("Delay1", SCUnitDelay1);
 module.exports = SCUnitDelay1;
-},{"../SCUnit":12,"../SCUnitRepository":13}],41:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],47:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3703,7 +4451,7 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("Delay2", SCUnitDelay2);
 module.exports = SCUnitDelay2;
-},{"../SCUnit":12,"../SCUnitRepository":13}],42:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],48:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3797,7 +4545,7 @@ dspProcess["k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("DelayC", SCUnitDelayC);
 module.exports = SCUnitDelayC;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/sc_cubicinterp":175,"../util/toPowerOfTwo":179}],43:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"../util/sc_cubicinterp":217,"../util/toPowerOfTwo":223}],49:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3886,7 +4634,7 @@ dspProcess["k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("DelayL", SCUnitDelayL);
 module.exports = SCUnitDelayL;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179}],44:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"../util/toPowerOfTwo":223}],50:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -3969,7 +4717,186 @@ dspProcess["k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("DelayN", SCUnitDelayN);
 module.exports = SCUnitDelayN;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":171,"../util/toPowerOfTwo":179}],45:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"../util/toPowerOfTwo":223}],51:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDemand = function (_SCUnit) {
+  _inherits(SCUnitDemand, _SCUnit);
+
+  function SCUnitDemand() {
+    _classCallCheck(this, SCUnitDemand);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDemand).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDemand, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess[$r2k(this)];
+
+      this._prevtrig = 0;
+      this._prevreset = 0;
+      this._prevout = new Float32Array(this.outputs.length);
+    }
+  }]);
+
+  return SCUnitDemand;
+}(SCUnit);
+
+function $r2k(unit) {
+  return unit.inputSpecs.slice(0, 2).map(function (_ref) {
+    var rate = _ref.rate;
+
+    if (rate === C.RATE_AUDIO) {
+      return "a";
+    }
+    return rate === C.RATE_SCALAR ? "i" : "k";
+  }).join("");
+}
+
+dspProcess["aa"] = function (inNumSamples) {
+  var outputs = this.outputs;
+  var trigIn = this.inputs[0];
+  var resetIn = this.inputs[1];
+  var prevout = this._prevout;
+  var numberOfDemandUGens = prevout.length;
+
+  var prevtrig = this._prevtrig;
+  var prevreset = this._prevreset;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var ztrig = trigIn[i];
+    var zreset = resetIn[i];
+
+    if (0 < zreset && prevreset <= 0) {
+      for (var j = 0; j < numberOfDemandUGens; j++) {
+        demand.reset(this, j + 2);
+      }
+    }
+    if (0 < ztrig && prevtrig <= 0) {
+      for (var _j = 0; _j < numberOfDemandUGens; _j++) {
+        var x = demand.next(this, _j + 2, i + 1);
+
+        if (Number.isNaN(x)) {
+          outputs[_j][i] = prevout[_j];
+          this.done = true;
+        } else {
+          outputs[_j][i] = prevout[_j] = x;
+        }
+      }
+    } else {
+      for (var _j2 = 0; _j2 < numberOfDemandUGens; _j2++) {
+        outputs[_j2][i] = prevout[_j2];
+      }
+    }
+    prevtrig = ztrig;
+    prevreset = zreset;
+  }
+
+  this._prevtrig = prevtrig;
+  this._prevreset = prevreset;
+};
+
+dspProcess["ak"] = function (inNumSamples) {
+  var outputs = this.outputs;
+  var trigIn = this.inputs[0];
+  var zreset = this.inputs[1][0];
+  var prevout = this._prevout;
+  var numberOfDemandUGens = prevout.length;
+
+  if (0 < zreset && this._prevreset <= 0) {
+    for (var j = 0; j < numberOfDemandUGens; j++) {
+      demand.reset(this, j + 2);
+    }
+  }
+  this._prevreset = zreset;
+
+  var prevtrig = this._prevtrig;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var ztrig = trigIn[i];
+
+    if (0 < ztrig && prevtrig <= 0) {
+      for (var _j3 = 0; _j3 < numberOfDemandUGens; _j3++) {
+        var x = demand.next(this, _j3 + 2, i + 1);
+
+        if (Number.isNaN(x)) {
+          outputs[_j3][i] = prevout[_j3];
+          this.done = true;
+        } else {
+          outputs[_j3][i] = prevout[_j3] = x;
+        }
+      }
+    } else {
+      for (var _j4 = 0; _j4 < numberOfDemandUGens; _j4++) {
+        outputs[_j4][i] = prevout[_j4];
+      }
+    }
+    prevtrig = ztrig;
+  }
+
+  this._prevtrig = prevtrig;
+};
+
+dspProcess["ai"] = dspProcess["ak"];
+dspProcess["ad"] = dspProcess["ak"];
+
+dspProcess["kk"] = function () {
+  var outputs = this.outputs;
+  var trig = this.inputs[0][0];
+  var reset = this.inputs[1][0];
+  var prevout = this._prevout;
+  var numberOfDemandUGens = prevout.length;
+
+  if (0 < reset && this._prevreset <= 0) {
+    for (var j = 0; j < numberOfDemandUGens; j++) {
+      demand.reset(this, j + 2);
+    }
+  }
+  if (0 < trig && this._prevtrig <= 0) {
+    for (var _j5 = 0; _j5 < numberOfDemandUGens; _j5++) {
+      var x = demand.next(this, _j5 + 2, 1);
+
+      if (Number.isNaN(x)) {
+        outputs[_j5][0] = prevout[_j5];
+        this.done = true;
+      } else {
+        outputs[_j5][0] = prevout[_j5] = x;
+      }
+    }
+  } else {
+    for (var _j6 = 0; _j6 < numberOfDemandUGens; _j6++) {
+      outputs[_j6][0] = prevout[_j6];
+    }
+  }
+
+  this._prevtrig = trig;
+  this._prevreset = reset;
+};
+
+dspProcess["ka"] = dspProcess["kk"];
+dspProcess["ki"] = dspProcess["kk"];
+dspProcess["kd"] = dspProcess["kk"];
+
+SCUnitRepository.registerSCUnitClass("Demand", SCUnitDemand);
+
+module.exports = SCUnitDemand;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],52:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4032,7 +4959,1037 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("DetectSilence", SCUnitDetectSilence);
 module.exports = SCUnitDetectSilence;
-},{"../SCUnit":12,"../SCUnitRepository":13}],46:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],53:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDgeom = function (_SCUnit) {
+  _inherits(SCUnitDgeom, _SCUnit);
+
+  function SCUnitDgeom() {
+    _classCallCheck(this, SCUnitDgeom);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDgeom).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDgeom, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+
+      this._grow = 1;
+      this._value = 0;
+
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+    }
+  }]);
+
+  return SCUnitDgeom;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  var out = this.outputs[0];
+  var grow = demand.next(this, 2, inNumSamples);
+
+  if (!Number.isNaN(grow)) {
+    this._grow = grow;
+  }
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Math.floor(x);
+    this._value = demand.next(this, 1, inNumSamples);
+  }
+
+  if (this._repeats <= this._repeatCount) {
+    out[0] = NaN;
+    return;
+  }
+
+  out[0] = this._value;
+  this._value *= this._grow;
+  this._repeatCount += 1;
+};
+
+SCUnitRepository.registerSCUnitClass("Dgeom", SCUnitDgeom);
+
+module.exports = SCUnitDgeom;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],54:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var sc_fold = require("../util/sc_fold");
+var dspProcess = {};
+
+var SCUnitDibrown = function (_SCUnit) {
+  _inherits(SCUnitDibrown, _SCUnit);
+
+  function SCUnitDibrown() {
+    _classCallCheck(this, SCUnitDibrown);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDibrown).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDibrown, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+
+      this._lo = 0;
+      this._hi = 0;
+      this._step = 0;
+      this._value = 0;
+
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+    }
+  }]);
+
+  return SCUnitDibrown;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  var lo = demand.next(this, 1, inNumSamples);
+  var hi = demand.next(this, 2, inNumSamples);
+  var step = demand.next(this, 3, inNumSamples);
+
+  if (!Number.isNaN(lo)) {
+    this._lo = lo;
+  }
+  if (!Number.isNaN(hi)) {
+    this._hi = hi;
+  }
+  if (!Number.isNaN(step)) {
+    this._step = step;
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+    this._value = Math.floor(Math.random() * (this._hi - this._lo) + this._lo);
+  }
+
+  var out = this.outputs[0];
+
+  if (this._repeats <= this._repeatCount) {
+    out[0] = NaN;
+    return;
+  }
+
+  this._repeatCount += 1;
+
+  out[0] = this._value;
+
+  var value = this._value + (Math.random() * 2 - 1) * this._step;
+
+  this._value = Math.floor(sc_fold(value, this._lo, this._hi));
+};
+
+SCUnitRepository.registerSCUnitClass("Dibrown", SCUnitDibrown);
+
+module.exports = SCUnitDibrown;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_fold":219,"./_demand":210}],55:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDiwhite = function (_SCUnit) {
+  _inherits(SCUnitDiwhite, _SCUnit);
+
+  function SCUnitDiwhite() {
+    _classCallCheck(this, SCUnitDiwhite);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDiwhite).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDiwhite, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+
+      this._lo = 0;
+      this._range = 0;
+
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+    }
+  }]);
+
+  return SCUnitDiwhite;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+  }
+
+  var out = this.outputs[0];
+
+  if (this._repeats <= this._repeatCount) {
+    out[0] = NaN;
+    return;
+  }
+
+  this._repeatCount += 1;
+
+  var lo = demand.next(this, 1, inNumSamples);
+  var hi = demand.next(this, 2, inNumSamples);
+
+  if (!Number.isNaN(lo)) {
+    this._lo = lo;
+  }
+  if (!Number.isNaN(hi)) {
+    this._range = hi - this._lo + 1;
+  }
+
+  out[0] = Math.floor(Math.random() * this._range + this._lo);
+};
+
+SCUnitRepository.registerSCUnitClass("Diwhite", SCUnitDiwhite);
+
+module.exports = SCUnitDiwhite;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],56:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDrand = function (_SCUnit) {
+  _inherits(SCUnitDrand, _SCUnit);
+
+  function SCUnitDrand() {
+    _classCallCheck(this, SCUnitDrand);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDrand).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDrand, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+      this._needToResetChild = true;
+    }
+  }]);
+
+  return SCUnitDrand;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+  }
+
+  var out = this.outputs[0];
+
+  for (;;) {
+    if (this._repeats <= this._repeatCount) {
+      out[0] = NaN;
+      return;
+    }
+
+    var index = Math.floor(Math.random() * (this.inputs.length - 1)) + 1;
+
+    if (!demand.isDemand(this, index)) {
+      out[0] = demand.next(this, index, inNumSamples);
+      this._repeatCount += 1;
+      this._needToResetChild = true;
+      return;
+    }
+
+    if (this._needToResetChild) {
+      this._needToResetChild = false;
+      demand.reset(this, index);
+    }
+
+    var _x = demand.next(this, index, inNumSamples);
+
+    if (Number.isNaN(_x)) {
+      this._repeatCount += 1;
+      this._needToResetChild = true;
+    } else {
+      out[0] = _x;
+      return;
+    }
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("Drand", SCUnitDrand);
+
+module.exports = SCUnitDrand;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],57:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDreset = function (_SCUnit) {
+  _inherits(SCUnitDreset, _SCUnit);
+
+  function SCUnitDreset() {
+    _classCallCheck(this, SCUnitDreset);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDreset).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDreset, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this._prev_reset = 0;
+
+      this.dspProcess = dspProcess["d"];
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      demand.reset(this, 0);
+    }
+  }]);
+
+  return SCUnitDreset;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  var out = this.outputs[0];
+  var x = demand.next(this, 0, inNumSamples);
+  var reset = demand.next(this, 1, inNumSamples);
+
+  if (Number.isNaN(x)) {
+    out[0] = NaN;
+    return;
+  }
+
+  if (0 < reset && this._prev_reset <= 0) {
+    demand.reset(this, 0);
+  }
+  this._prev_reset = reset;
+
+  out[0] = x;
+};
+
+SCUnitRepository.registerSCUnitClass("Dreset", SCUnitDreset);
+
+module.exports = SCUnitDreset;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],58:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDseq = function (_SCUnit) {
+  _inherits(SCUnitDseq, _SCUnit);
+
+  function SCUnitDseq() {
+    _classCallCheck(this, SCUnitDseq);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDseq).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDseq, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+      this._index = 1;
+      this._needToResetChild = true;
+    }
+  }]);
+
+  return SCUnitDseq;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+  }
+
+  var out = this.outputs[0];
+
+  for (;;) {
+    if (this.inputs.length <= this._index) {
+      this._index = 1;
+      this._repeatCount += 1;
+    }
+
+    if (this._repeats <= this._repeatCount) {
+      out[0] = NaN;
+      return;
+    }
+
+    var index = this._index;
+
+    if (!demand.isDemand(this, index)) {
+      out[0] = demand.next(this, index, inNumSamples);
+      this._index += 1;
+      this._needToResetChild = true;
+      return;
+    }
+
+    if (this._needToResetChild) {
+      this._needToResetChild = false;
+      demand.reset(this, index);
+    }
+
+    var _x = demand.next(this, index, inNumSamples);
+
+    if (Number.isNaN(_x)) {
+      this._index += 1;
+      this._needToResetChild = true;
+    } else {
+      out[0] = _x;
+      return;
+    }
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("Dseq", SCUnitDseq);
+
+module.exports = SCUnitDseq;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],59:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDser = function (_SCUnit) {
+  _inherits(SCUnitDser, _SCUnit);
+
+  function SCUnitDser() {
+    _classCallCheck(this, SCUnitDser);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDser).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDser, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+      this._index = 1;
+      this._needToResetChild = true;
+    }
+  }]);
+
+  return SCUnitDser;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+  }
+
+  var out = this.outputs[0];
+
+  for (;;) {
+    if (this.inputs.length <= this._index) {
+      this._index = 1;
+    }
+
+    if (this._repeats <= this._repeatCount) {
+      out[0] = NaN;
+      return;
+    }
+
+    var index = this._index;
+
+    if (!demand.isDemand(this, index)) {
+      out[0] = demand.next(this, index, inNumSamples);
+      this._index += 1;
+      this._repeatCount += 1;
+      this._needToResetChild = true;
+      return;
+    }
+
+    if (this._needToResetChild) {
+      this._needToResetChild = false;
+      demand.reset(this, index);
+    }
+
+    var _x = demand.next(this, index, inNumSamples);
+
+    if (Number.isNaN(_x)) {
+      this._index += 1;
+      this._repeatCount += 1;
+      this._needToResetChild = true;
+    } else {
+      out[0] = _x;
+      return;
+    }
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("Dser", SCUnitDser);
+
+module.exports = SCUnitDser;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],60:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDseries = function (_SCUnit) {
+  _inherits(SCUnitDseries, _SCUnit);
+
+  function SCUnitDseries() {
+    _classCallCheck(this, SCUnitDseries);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDseries).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDseries, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+
+      this._step = 0;
+      this._value = 0;
+
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+    }
+  }]);
+
+  return SCUnitDseries;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  var out = this.outputs[0];
+  var step = demand.next(this, 2, inNumSamples);
+
+  if (!Number.isNaN(step)) {
+    this._step = step;
+  }
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Math.floor(x);
+    this._value = demand.next(this, 1, inNumSamples);
+  }
+
+  if (this._repeats <= this._repeatCount) {
+    out[0] = NaN;
+    return;
+  }
+
+  out[0] = this._value;
+  this._value += this._step;
+  this._repeatCount += 1;
+};
+
+SCUnitRepository.registerSCUnitClass("Dseries", SCUnitDseries);
+
+module.exports = SCUnitDseries;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],61:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var nmap = require("nmap");
+var shuffle = require("shuffle-array");
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDShuf = function (_SCUnit) {
+  _inherits(SCUnitDShuf, _SCUnit);
+
+  function SCUnitDShuf() {
+    _classCallCheck(this, SCUnitDShuf);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDShuf).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDShuf, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+
+      this._indices = shuffle(nmap(this.inputs.length - 1, function (_, i) {
+        return i + 1;
+      }));
+
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+      this._index = 0;
+      this._needToResetChild = true;
+    }
+  }]);
+
+  return SCUnitDShuf;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+  }
+
+  var out = this.outputs[0];
+
+  for (;;) {
+    if (this._indices.length <= this._index) {
+      this._index = 0;
+      this._repeatCount += 1;
+    }
+
+    if (this._repeats <= this._repeatCount) {
+      out[0] = NaN;
+      return;
+    }
+
+    var index = this._indices[this._index];
+
+    if (!demand.isDemand(this, index)) {
+      out[0] = demand.next(this, index, inNumSamples);
+      this._index += 1;
+      this._needToResetChild = true;
+      return;
+    }
+
+    if (this._needToResetChild) {
+      this._needToResetChild = false;
+      demand.reset(this, index);
+    }
+
+    var _x = demand.next(this, index, inNumSamples);
+
+    if (Number.isNaN(_x)) {
+      this._index += 1;
+      this._needToResetChild = true;
+    } else {
+      out[0] = _x;
+      return;
+    }
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("DShuf", SCUnitDShuf);
+
+module.exports = SCUnitDShuf;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210,"nmap":2,"shuffle-array":230}],62:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDstutter = function (_SCUnit) {
+  _inherits(SCUnitDstutter, _SCUnit);
+
+  function SCUnitDstutter() {
+    _classCallCheck(this, SCUnitDstutter);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDstutter).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDstutter, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+      demand.reset(this, 0);
+      demand.reset(this, 1);
+    }
+  }]);
+
+  return SCUnitDstutter;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  var out = this.outputs[0];
+
+  if (this._repeats <= this._repeatCount) {
+    var value = demand.next(this, 1, inNumSamples);
+    var repeats = demand.next(this, 0, inNumSamples);
+
+    if (Number.isNaN(value) || Number.isNaN(repeats)) {
+      out[0] = NaN;
+      return;
+    }
+
+    this._value = value;
+    this._repeats = Math.max(0, Math.floor(repeats + 0.5));
+    this._repeatCount = 0;
+  }
+
+  out[0] = this._value;
+  this._repeatCount += 1;
+};
+
+SCUnitRepository.registerSCUnitClass("Dstutter", SCUnitDstutter);
+
+module.exports = SCUnitDstutter;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],63:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDswitch = function (_SCUnit) {
+  _inherits(SCUnitDswitch, _SCUnit);
+
+  function SCUnitDswitch() {
+    _classCallCheck(this, SCUnitDswitch);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDswitch).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDswitch, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this._index = computeIndex(demand.next(this, 0, 1), this.inputs.length);
+
+      this.dspProcess = dspProcess["d"];
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      for (var i = 0, imax = this.inputs.length; i < imax; i++) {
+        demand.reset(this, i);
+      }
+      this._index = computeIndex(demand.next(this, 0, 1), this.inputs.length);
+    }
+  }]);
+
+  return SCUnitDswitch;
+}(SCUnit);
+
+function computeIndex(index, length) {
+  index = index = (index | 0) % (length - 1);
+  if (index < 0) {
+    index += length - 1;
+  }
+  return index + 1;
+}
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  var out = this.outputs[0];
+
+  var val = demand.next(this, this._index, inNumSamples);
+
+  if (Number.isNaN(val)) {
+    var ival = demand.next(this, 0, inNumSamples);
+
+    if (Number.isNaN(ival)) {
+      val = NaN;
+    } else {
+      var index = computeIndex(ival, this.inputs.length);
+
+      val = demand.next(this, index, inNumSamples);
+      demand.reset(this, this._index);
+
+      this._index = index;
+    }
+  }
+
+  out[0] = val;
+};
+
+SCUnitRepository.registerSCUnitClass("Dswitch", SCUnitDswitch);
+
+module.exports = SCUnitDswitch;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],64:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDswitch1 = function (_SCUnit) {
+  _inherits(SCUnitDswitch1, _SCUnit);
+
+  function SCUnitDswitch1() {
+    _classCallCheck(this, SCUnitDswitch1);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDswitch1).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDswitch1, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      for (var i = 0, imax = this.inputs.length; i < imax; i++) {
+        demand.reset(this, i);
+      }
+    }
+  }]);
+
+  return SCUnitDswitch1;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  var out = this.outputs[0];
+  var x = demand.next(this, 0);
+
+  if (Number.isNaN(x)) {
+    out[0] = NaN;
+    return;
+  }
+
+  var index = Math.floor(x + 0.5) % (this.inputs.length - 1) + 1;
+
+  out[0] = demand.next(this, index, inNumSamples);
+};
+
+SCUnitRepository.registerSCUnitClass("Dswitch1", SCUnitDswitch1);
+
+module.exports = SCUnitDswitch1;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],65:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4088,7 +6045,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Dust", SCUnitDust);
 module.exports = SCUnitDust;
-},{"../SCUnit":12,"../SCUnitRepository":13}],47:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],66:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4144,7 +6101,492 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Dust2", SCUnitDust2);
 module.exports = SCUnitDust2;
-},{"../SCUnit":12,"../SCUnitRepository":13}],48:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],67:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _$r2k;
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+var $r2k = (_$r2k = {}, _defineProperty(_$r2k, C.RATE_SCALAR, "di"), _defineProperty(_$r2k, C.RATE_CONTROL, "dk"), _defineProperty(_$r2k, C.RATE_AUDIO, "da"), _defineProperty(_$r2k, C.RATE_DEMAND, "dd"), _$r2k);
+
+var SCUnitDuty = function (_SCUnit) {
+  _inherits(SCUnitDuty, _SCUnit);
+
+  function SCUnitDuty() {
+    _classCallCheck(this, SCUnitDuty);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDuty).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDuty, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      this.dspProcess = dspProcess[$r2k[this.inputSpecs[1].rate]];
+
+      this._sampleRate = rate.sampleRate;
+      this._prevreset = 0;
+      this._count = demand.next(this, 0, 1) * this._sampleRate - 1;
+      this._prevout = demand.next(this, 3, 1);
+
+      if (this.inputSpecs[1].rate === C.RATE_DEMAND) {
+        this._prevreset = demand.next(this, 1, 1) * this._sampleRate;
+      }
+
+      this.outputs[0][0] = this._prevout;
+    }
+  }]);
+
+  return SCUnitDuty;
+}(SCUnit);
+
+dspProcess["da"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var resetIn = this.inputs[1];
+  var sampleRate = this._sampleRate;
+
+  var prevout = this._prevout;
+  var count = this._count;
+  var prevreset = this._prevreset;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var zreset = resetIn[i];
+
+    if (0 < zreset && prevreset <= 0) {
+      demand.reset(this, 0);
+      demand.reset(this, 3);
+      count = 0;
+    }
+
+    if (count <= 0) {
+      count += demand.next(this, 0, i + 1) * sampleRate;
+      if (Number.isNaN(count)) {
+        this.doneAction(this.inputs[2][0]);
+      }
+
+      var x = demand.next(this, 3, i + 1);
+
+      if (Number.isNaN(x)) {
+        x = prevout;
+        this.doneAction(this.inputs[2][0]);
+      } else {
+        prevout = x;
+      }
+      out[i] = x;
+    } else {
+      out[i] = prevout;
+    }
+
+    count -= 1;
+    prevreset = zreset;
+  }
+
+  this._count = count;
+  this._prevreset = prevreset;
+  this._prevout = prevout;
+};
+
+dspProcess["dk"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var zreset = this.inputs[1][0];
+  var sampleRate = this._sampleRate;
+
+  var prevout = this._prevout;
+  var count = this._count;
+
+  if (0 < zreset && this._prevreset <= 0) {
+    demand.reset(this, 0);
+    demand.reset(this, 3);
+    count = 0;
+  }
+
+  for (var i = 0; i < inNumSamples; i++) {
+    if (count <= 0) {
+      count += demand.next(this, 0, i + 1) * sampleRate;
+      if (Number.isNaN(count)) {
+        this.doneAction(this.inputs[2][0]);
+      }
+
+      var x = demand.next(this, 3, i + 1);
+
+      if (Number.isNaN(x)) {
+        x = prevout;
+        this.doneAction(this.inputs[2][0]);
+      } else {
+        prevout = x;
+      }
+      out[i] = x;
+    } else {
+      out[i] = prevout;
+    }
+    count -= 1;
+  }
+
+  this._count = count;
+  this._prevreset = zreset;
+  this._prevout = prevout;
+};
+
+dspProcess["di"] = dspProcess["dk"];
+
+dspProcess["dd"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var sampleRate = this._sampleRate;
+
+  var prevout = this._prevout;
+  var count = this._count;
+  var reset = this._prevreset;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    if (reset <= 0) {
+      demand.next(this, 0);
+      demand.next(this, 3);
+      count = 0;
+      reset += demand.next(this, 1, i + 1) * sampleRate;
+    } else {
+      reset -= 1;
+    }
+
+    if (count <= 0) {
+      count += demand.next(this, 0, i + 1) * sampleRate;
+      if (Number.isNaN(count)) {
+        this.doneAction(this.inputs[2][0]);
+      }
+      var x = demand.next(this, 3, i + 1);
+
+      if (Number.isNaN(x)) {
+        x = prevout;
+        this.doneAction(this.inputs[2][0]);
+      } else {
+        prevout = x;
+      }
+    }
+
+    out[i] = prevout;
+    count -= 1;
+  }
+
+  this._count = count;
+  this._prevreset = reset;
+  this._prevout = prevout;
+};
+
+SCUnitRepository.registerSCUnitClass("Duty", SCUnitDuty);
+
+module.exports = SCUnitDuty;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],68:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDwhite = function (_SCUnit) {
+  _inherits(SCUnitDwhite, _SCUnit);
+
+  function SCUnitDwhite() {
+    _classCallCheck(this, SCUnitDwhite);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDwhite).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDwhite, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+
+      this._lo = 0;
+      this._range = 0;
+
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+    }
+  }]);
+
+  return SCUnitDwhite;
+}(SCUnit);
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+  }
+
+  var out = this.outputs[0];
+
+  if (this._repeats <= this._repeatCount) {
+    out[0] = NaN;
+    return;
+  }
+
+  this._repeatCount += 1;
+
+  var lo = demand.next(this, 1, inNumSamples);
+  var hi = demand.next(this, 2, inNumSamples);
+
+  if (!Number.isNaN(lo)) {
+    this._lo = lo;
+  }
+  if (!Number.isNaN(hi)) {
+    this._range = hi - this._lo;
+  }
+
+  out[0] = Math.random() * this._range + this._lo;
+};
+
+SCUnitRepository.registerSCUnitClass("Dwhite", SCUnitDwhite);
+
+module.exports = SCUnitDwhite;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],69:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDwrand = function (_SCUnit) {
+  _inherits(SCUnitDwrand, _SCUnit);
+
+  function SCUnitDwrand() {
+    _classCallCheck(this, SCUnitDwrand);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDwrand).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDwrand, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+
+      this._weightsSize = this.inputs[1][0];
+
+      this._index = 2 + this._weightsSize;
+
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+      this._needToResetChild = true;
+    }
+  }]);
+
+  return SCUnitDwrand;
+}(SCUnit);
+
+function nextIndex(inputs, length) {
+  var r = Math.random();
+
+  var sum = 0;
+
+  for (var i = 0; i < length; i++) {
+    sum += inputs[i + 2][0];
+    if (r <= sum) {
+      return i + (2 + length);
+    }
+  }
+
+  return inputs.length - 1;
+}
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+  }
+
+  var out = this.outputs[0];
+
+  for (;;) {
+    if (this._repeats <= this._repeatCount) {
+      out[0] = NaN;
+      return;
+    }
+
+    if (!demand.isDemand(this, this._index)) {
+      out[0] = demand.next(this, this._index, inNumSamples);
+      this._index = nextIndex(this.inputs, this._weightsSize);
+      this._repeatCount += 1;
+      this._needToResetChild = true;
+      return;
+    }
+
+    if (this._needToResetChild) {
+      this._needToResetChild = false;
+      demand.reset(this, this._index);
+    }
+
+    var _x = demand.next(this, this._index, inNumSamples);
+
+    if (Number.isNaN(_x)) {
+      this._index = nextIndex(this.inputs, this._weightsSize);
+      this._repeatCount += 1;
+      this._needToResetChild = true;
+    } else {
+      out[0] = _x;
+      return;
+    }
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("Dwrand", SCUnitDwrand);
+
+module.exports = SCUnitDwrand;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],70:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+
+var SCUnitDxrand = function (_SCUnit) {
+  _inherits(SCUnitDxrand, _SCUnit);
+
+  function SCUnitDxrand() {
+    _classCallCheck(this, SCUnitDxrand);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitDxrand).apply(this, arguments));
+  }
+
+  _createClass(SCUnitDxrand, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["d"];
+      this.reset();
+    }
+  }, {
+    key: "reset",
+    value: function reset() {
+      this._repeats = -1;
+      this._repeatCount = 0;
+      this._index = nextIndex(this.inputs.length);
+      this._needToResetChild = true;
+    }
+  }]);
+
+  return SCUnitDxrand;
+}(SCUnit);
+
+function nextIndex(length) {
+  return Math.floor(Math.random() * (length - 2)) + 1;
+}
+
+dspProcess["d"] = function (inNumSamples) {
+  if (inNumSamples === 0) {
+    return this.reset();
+  }
+
+  if (this._repeats < 0) {
+    var x = demand.next(this, 0, inNumSamples);
+
+    this._repeats = Number.isNaN(x) ? 0 : Math.max(0, Math.floor(x + 0.5));
+  }
+
+  var out = this.outputs[0];
+
+  for (;;) {
+    if (this._repeats <= this._repeatCount) {
+      out[0] = NaN;
+      return;
+    }
+
+    var newIndex = nextIndex(this.inputs.length);
+    var index = newIndex < this._index ? newIndex : newIndex + 1;
+
+    this._index = index;
+
+    if (!demand.isDemand(this, index)) {
+      out[0] = demand.next(this, index, inNumSamples);
+      this._repeatCount += 1;
+      this._needToResetChild = true;
+      return;
+    }
+
+    if (this._needToResetChild) {
+      this._needToResetChild = false;
+      demand.reset(this, index);
+    }
+
+    var _x = demand.next(this, index, inNumSamples);
+
+    if (Number.isNaN(_x)) {
+      this._repeatCount += 1;
+      this._needToResetChild = true;
+    } else {
+      out[0] = _x;
+      return;
+    }
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("Dxrand", SCUnitDxrand);
+
+module.exports = SCUnitDxrand;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],71:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4638,7 +7080,7 @@ dspProcess["next_k"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("EnvGen", SCUnitEnvGen);
 module.exports = SCUnitEnvGen;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],49:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],72:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4676,7 +7118,7 @@ var SCUnitExpRand = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("ExpRand", SCUnitExpRand);
 module.exports = SCUnitExpRand;
-},{"../SCUnit":12,"../SCUnitRepository":13}],50:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],73:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4774,7 +7216,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("FOS", SCUnitFOS);
 module.exports = SCUnitFOS;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],51:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],74:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4837,7 +7279,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("FSinOsc", SCUnitFSinOsc);
 module.exports = SCUnitFSinOsc;
-},{"../SCUnit":12,"../SCUnitRepository":13}],52:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],75:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4913,7 +7355,228 @@ dspProcess["next_kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Fold", SCUnitFold);
 module.exports = SCUnitFold;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_fold":176}],53:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_fold":219}],76:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+
+var log001 = Math.log(0.001);
+var dspProcess = {};
+
+var SCUnitFormlet = function (_SCUnit) {
+  _inherits(SCUnitFormlet, _SCUnit);
+
+  function SCUnitFormlet() {
+    _classCallCheck(this, SCUnitFormlet);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitFormlet).apply(this, arguments));
+  }
+
+  _createClass(SCUnitFormlet, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      if (this.calcRate === C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["a"];
+      } else {
+        this.dspProcess = dspProcess["1"];
+      }
+
+      this._sampleRate = rate.sampleRate;
+      this._slopeFactor = rate.slopeFactor;
+      this._radiansPerSample = rate.radiansPerSample;
+
+      this._b01 = 0;
+      this._b02 = 0;
+      this._y01 = 0;
+      this._y02 = 0;
+      this._b11 = 0;
+      this._b12 = 0;
+      this._y11 = 0;
+      this._y12 = 0;
+      this._freq = NaN;
+      this._attackTime = NaN;
+      this._decayTime = NaN;
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitFormlet;
+}(SCUnit);
+
+dspProcess["a"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var freq = this.inputs[1][0];
+  var attackTime = this.inputs[2][0];
+  var decayTime = this.inputs[3][0];
+  var b01 = this._b01;
+  var b11 = this._b11;
+  var b02 = this._b02;
+  var b12 = this._b12;
+
+  var y00 = void 0;
+  var y10 = void 0;
+  var y01 = this._y01;
+  var y11 = this._y11;
+  var y02 = this._y02;
+  var y12 = this._y12;
+  var R = void 0,
+      twoR = void 0,
+      R2 = void 0,
+      cost = void 0;
+
+  if (freq != this._freq || decayTime != this._decayTime || attackTime != this._attackTime) {
+    var ffreq = freq * this._radiansPerSample;
+
+    R = decayTime ? Math.exp(log001 / (decayTime * this._sampleRate)) : 0;
+    twoR = 2 * R;
+    R2 = R * R;
+    cost = twoR * Math.cos(ffreq) / (1 + R2);
+
+    var b01_next = twoR * cost;
+    var b02_next = -R2;
+    var b01_slope = (b01_next - b01) * this._slopeFactor;
+    var b02_slope = (b02_next - b02) * this._slopeFactor;
+
+    R = attackTime ? Math.exp(log001 / (attackTime * this._sampleRate)) : 0;
+    twoR = 2 * R;
+    R2 = R * R;
+    cost = twoR * Math.cos(ffreq) / (1 + R2);
+
+    var b11_next = twoR * cost;
+    var b12_next = -R2;
+    var b11_slope = (b11_next - b11) * this._slopeFactor;
+    var b12_slope = (b12_next - b12) * this._slopeFactor;
+
+    for (var i = 0; i < inNumSamples; i++) {
+      y00 = inIn[i] + (b01 + b01_slope * i) * y01 + (b02 + b02_slope * i) * y02;
+      y10 = inIn[i] + (b11 + b11_slope * i) * y11 + (b12 + b12_slope * i) * y12;
+
+      out[i] = 0.25 * (y00 - y02 - (y10 - y12));
+
+      y02 = y01;
+      y01 = y00;
+      y12 = y11;
+      y11 = y10;
+    }
+
+    this._freq = freq;
+    this._attackTime = attackTime;
+    this._decayTime = decayTime;
+    this._b01 = b01_next;
+    this._b02 = b02_next;
+    this._b11 = b11_next;
+    this._b12 = b12_next;
+  } else {
+    for (var _i = 0; _i < inNumSamples; _i++) {
+      y00 = inIn[_i] + b01 * y01 + b02 * y02;
+      y10 = inIn[_i] + b11 * y11 + b12 * y12;
+
+      out[_i] = 0.25 * (y00 - y02 - (y10 - y12));
+
+      y02 = y01;
+      y01 = y00;
+      y12 = y11;
+      y11 = y10;
+    }
+  }
+
+  this._y01 = y01;
+  this._y02 = y02;
+  this._y11 = y11;
+  this._y12 = y12;
+};
+
+dspProcess["1"] = function () {
+  var _in = this.inputs[0][0];
+  var freq = this.inputs[1][0];
+  var attackTime = this.inputs[2][0];
+  var decayTime = this.inputs[3][0];
+
+  var y00 = void 0;
+  var y10 = void 0;
+  var y01 = this._y01;
+  var y11 = this._y11;
+  var y02 = this._y02;
+  var y12 = this._y12;
+
+  var b01 = this._b01;
+  var b11 = this._b11;
+  var b02 = this._b02;
+  var b12 = this._b12;
+  var R = void 0,
+      twoR = void 0,
+      R2 = void 0,
+      cost = void 0;
+
+  if (freq != this._freq || decayTime != this._decayTime || attackTime != this._attackTime) {
+    var ffreq = freq * this._radiansPerSample;
+
+    R = decayTime ? Math.exp(log001 / (decayTime * this._sampleRate)) : 0;
+    twoR = 2 * R;
+    R2 = R * R;
+    cost = twoR * Math.cos(ffreq) / (1 + R2);
+    b01 = twoR * cost;
+    b02 = -R2;
+
+    R = attackTime ? Math.exp(log001 / (attackTime * this._sampleRate)) : 0;
+    twoR = 2 * R;
+    R2 = R * R;
+    cost = twoR * Math.cos(ffreq) / (1 + R2);
+    b11 = twoR * cost;
+    b12 = -R2;
+
+    y00 = _in + b01 * y01 + b02 * y02;
+    y10 = _in + b11 * y11 + b12 * y12;
+
+    this.outputs[0][0] = 0.25 * (y00 - y02 - (y10 - y12));
+
+    y02 = y01;
+    y01 = y00;
+    y12 = y11;
+    y11 = y10;
+
+    this._freq = freq;
+    this._attackTime = attackTime;
+    this._decayTime = decayTime;
+    this._b01 = b01;
+    this._b02 = b02;
+    this._b11 = b11;
+    this._b12 = b12;
+  } else {
+    y00 = _in + b01 * y01 + b02 * y02;
+    y10 = _in + b11 * y11 + b12 * y12;
+
+    this.outputs[0][0] = 0.25 * (y00 - y02 - (y10 - y12));
+
+    y02 = y01;
+    y01 = y00;
+    y12 = y11;
+    y11 = y10;
+  }
+
+  this._y01 = y01;
+  this._y02 = y02;
+  this._y11 = y11;
+  this._y12 = y12;
+};
+
+SCUnitRepository.registerSCUnitClass("Formlet", SCUnitFormlet);
+
+module.exports = SCUnitFormlet;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],77:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -4926,6 +7589,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+var clamp = require("../util/clamp");
 var dspProcess = {};
 
 var SCUnitFreeVerb = function (_SCUnit) {
@@ -4940,7 +7604,9 @@ var SCUnitFreeVerb = function (_SCUnit) {
   _createClass(SCUnitFreeVerb, [{
     key: "initialize",
     value: function initialize() {
-      this.dspProcess = dspProcess["next"];
+
+      this.dspProcess = dspProcess["akkk"];
+
       this._iota0 = 0;
       this._iota1 = 0;
       this._iota2 = 0;
@@ -4989,6 +7655,7 @@ var SCUnitFreeVerb = function (_SCUnit) {
       this._dline9 = new Float32Array(1116);
       this._dline10 = new Float32Array(1188);
       this._dline11 = new Float32Array(1356);
+
       this.dspProcess(1);
     }
   }]);
@@ -4996,14 +7663,15 @@ var SCUnitFreeVerb = function (_SCUnit) {
   return SCUnitFreeVerb;
 }(SCUnit);
 
-dspProcess["next"] = function (inNumSamples) {
+dspProcess["akkk"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
-  var ftemp0 = Math.max(0, Math.min(this.inputs[1][0], 1));
+  var mix = clamp(this.inputs[1][0], 0, 1);
+  var room = clamp(this.inputs[2][0], 0, 1);
+  var damp = clamp(this.inputs[3][0], 0, 1);
+  var ftemp0 = mix;
   var ftemp1 = 1 - ftemp0;
-  var room = Math.max(0, Math.min(this.inputs[2][0], 1));
   var ftemp5 = 0.7 + 0.28 * room;
-  var damp = Math.max(0, Math.min(this.inputs[3][0], 1));
   var ftemp6 = 0.4 * damp;
   var ftemp7 = 1 - ftemp6;
   var dline0 = this._dline0;
@@ -5018,6 +7686,7 @@ dspProcess["next"] = function (inNumSamples) {
   var dline9 = this._dline9;
   var dline10 = this._dline10;
   var dline11 = this._dline11;
+
   var iota0 = this._iota0;
   var iota1 = this._iota1;
   var iota2 = this._iota2;
@@ -5030,10 +7699,6 @@ dspProcess["next"] = function (inNumSamples) {
   var iota9 = this._iota9;
   var iota10 = this._iota10;
   var iota11 = this._iota11;
-  var R0_1 = this._R0_1;
-  var R1_1 = this._R1_1;
-  var R2_1 = this._R2_1;
-  var R3_1 = this._R3_1;
   var R0_0 = this._R0_0;
   var R1_0 = this._R1_0;
   var R2_0 = this._R2_0;
@@ -5054,9 +7719,15 @@ dspProcess["next"] = function (inNumSamples) {
   var R17_0 = this._R17_0;
   var R18_0 = this._R18_0;
   var R19_0 = this._R19_0;
+  var R0_1 = this._R0_1;
+  var R1_1 = this._R1_1;
+  var R2_1 = this._R2_1;
+  var R3_1 = this._R3_1;
+
   for (var i = 0; i < inNumSamples; i++) {
     var ftemp2 = inIn[i];
     var ftemp4 = 0.015 * ftemp2;
+
     iota0 = ++iota0 % 225;
     iota1 = ++iota1 % 341;
     iota2 = ++iota2 % 441;
@@ -5069,6 +7740,7 @@ dspProcess["next"] = function (inNumSamples) {
     iota9 = ++iota9 % 1116;
     iota10 = ++iota10 % 1188;
     iota11 = ++iota11 % 1356;
+
     var T0 = dline0[iota0];
     var T1 = dline1[iota1];
     var T2 = dline2[iota2];
@@ -5081,45 +7753,58 @@ dspProcess["next"] = function (inNumSamples) {
     var T9 = dline9[iota9];
     var T10 = dline10[iota10];
     var T11 = dline11[iota11];
+
     R5_0 = ftemp7 * R4_0 + ftemp6 * R5_0;
     dline4[iota4] = ftemp4 + ftemp5 * R5_0;
     R4_0 = T4;
+
     R7_0 = ftemp7 * R6_0 + ftemp6 * R7_0;
     dline5[iota5] = ftemp4 + ftemp5 * R7_0;
     R6_0 = T5;
+
     R9_0 = ftemp7 * R8_0 + ftemp6 * R9_0;
     dline6[iota6] = ftemp4 + ftemp5 * R9_0;
     R8_0 = T6;
+
     R11_0 = ftemp7 * R10_0 + ftemp6 * R11_0;
     dline7[iota7] = ftemp4 + ftemp5 * R11_0;
     R10_0 = T7;
+
     R13_0 = ftemp7 * R12_0 + ftemp6 * R13_0;
     dline8[iota8] = ftemp4 + ftemp5 * R13_0;
     R12_0 = T8;
+
     R15_0 = ftemp7 * R14_0 + ftemp6 * R15_0;
     dline9[iota9] = ftemp4 + ftemp5 * R15_0;
     R14_0 = T9;
+
     R17_0 = ftemp7 * R16_0 + ftemp6 * R17_0;
     dline10[iota10] = ftemp4 + ftemp5 * R17_0;
     R16_0 = T10;
+
     R19_0 = ftemp7 * R18_0 + ftemp6 * R19_0;
     dline11[iota11] = ftemp4 + ftemp5 * R19_0;
     R18_0 = T11;
-    var ftemp8 = R16_0 + R18_0;
-    dline3[iota3] = 0.5 * R3_0 + R4_0 + (R6_0 + R8_0) + (R10_0 + R12_0 + (R14_0 + ftemp8));
+
+    dline3[iota3] = 0.5 * R3_0 + R4_0 + (R6_0 + R8_0) + (R10_0 + R12_0 + (R14_0 + (R16_0 + R18_0)));
     R3_0 = T3;
-    R3_1 = R3_0 - (R4_0 + R6_0 + (R8_0 + R10_0) + (R12_0 + R14_0 + ftemp8));
+
+    R3_1 = R3_0 - (R4_0 + R6_0 + (R8_0 + R10_0) + (R12_0 + R14_0 + (R16_0 + R18_0)));
     dline2[iota2] = 0.5 * R2_0 + R3_1;
     R2_0 = T2;
+
     R2_1 = R2_0 - R3_1;
     dline1[iota1] = 0.5 * R1_0 + R2_1;
     R1_0 = T1;
+
     R1_1 = R1_0 - R2_1;
     dline0[iota0] = 0.5 * R0_0 + R1_1;
     R0_0 = T0;
+
     R0_1 = R0_0 - R1_1;
     out[i] = ftemp1 * ftemp2 + ftemp0 * R0_1;
   }
+
   this._iota0 = iota0;
   this._iota1 = iota1;
   this._iota2 = iota2;
@@ -5157,9 +7842,495 @@ dspProcess["next"] = function (inNumSamples) {
   this._R18_0 = R18_0;
   this._R19_0 = R19_0;
 };
+
 SCUnitRepository.registerSCUnitClass("FreeVerb", SCUnitFreeVerb);
+
 module.exports = SCUnitFreeVerb;
-},{"../SCUnit":12,"../SCUnitRepository":13}],54:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213}],78:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var clamp = require("../util/clamp");
+var dspProcess = {};
+
+var SCUnitFreeVerb2 = function (_SCUnit) {
+  _inherits(SCUnitFreeVerb2, _SCUnit);
+
+  function SCUnitFreeVerb2() {
+    _classCallCheck(this, SCUnitFreeVerb2);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitFreeVerb2).apply(this, arguments));
+  }
+
+  _createClass(SCUnitFreeVerb2, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["aakkk"];
+
+      this._iota0 = 0;
+      this._iota1 = 0;
+      this._iota2 = 0;
+      this._iota3 = 0;
+      this._iota4 = 0;
+      this._iota5 = 0;
+      this._iota6 = 0;
+      this._iota7 = 0;
+      this._iota8 = 0;
+      this._iota9 = 0;
+      this._iota10 = 0;
+      this._iota11 = 0;
+      this._iota12 = 0;
+      this._iota13 = 0;
+      this._iota14 = 0;
+      this._iota15 = 0;
+      this._iota16 = 0;
+      this._iota17 = 0;
+      this._iota18 = 0;
+      this._iota19 = 0;
+      this._iota20 = 0;
+      this._iota21 = 0;
+      this._iota22 = 0;
+      this._iota23 = 0;
+      this._R0_1 = 0;
+      this._R1_1 = 0;
+      this._R2_1 = 0;
+      this._R3_1 = 0;
+      this._R0_0 = 0;
+      this._R1_0 = 0;
+      this._R2_0 = 0;
+      this._R3_0 = 0;
+      this._R4_0 = 0;
+      this._R5_0 = 0;
+      this._R6_0 = 0;
+      this._R7_0 = 0;
+      this._R8_0 = 0;
+      this._R9_0 = 0;
+      this._R10_0 = 0;
+      this._R11_0 = 0;
+      this._R12_0 = 0;
+      this._R13_0 = 0;
+      this._R14_0 = 0;
+      this._R15_0 = 0;
+      this._R16_0 = 0;
+      this._R17_0 = 0;
+      this._R18_0 = 0;
+      this._R19_0 = 0;
+      this._R20_0 = 0;
+      this._R21_0 = 0;
+      this._R22_0 = 0;
+      this._R23_0 = 0;
+      this._R24_0 = 0;
+      this._R25_0 = 0;
+      this._R26_0 = 0;
+      this._R27_0 = 0;
+      this._R28_0 = 0;
+      this._R29_0 = 0;
+      this._R30_0 = 0;
+      this._R31_0 = 0;
+      this._R32_0 = 0;
+      this._R33_0 = 0;
+      this._R34_0 = 0;
+      this._R35_0 = 0;
+      this._R36_0 = 0;
+      this._R37_0 = 0;
+      this._R38_0 = 0;
+      this._R39_0 = 0;
+      this._R20_1 = 0;
+      this._R21_1 = 0;
+      this._R22_1 = 0;
+      this._R23_1 = 0;
+      this._dline0 = new Float32Array(225);
+      this._dline1 = new Float32Array(341);
+      this._dline2 = new Float32Array(441);
+      this._dline3 = new Float32Array(556);
+      this._dline4 = new Float32Array(1617);
+      this._dline5 = new Float32Array(1557);
+      this._dline6 = new Float32Array(1491);
+      this._dline7 = new Float32Array(1422);
+      this._dline8 = new Float32Array(1277);
+      this._dline9 = new Float32Array(1116);
+      this._dline10 = new Float32Array(1188);
+      this._dline11 = new Float32Array(1356);
+      this._dline12 = new Float32Array(248);
+      this._dline13 = new Float32Array(364);
+      this._dline14 = new Float32Array(464);
+      this._dline15 = new Float32Array(579);
+      this._dline16 = new Float32Array(1640);
+      this._dline17 = new Float32Array(1580);
+      this._dline18 = new Float32Array(1514);
+      this._dline19 = new Float32Array(1445);
+      this._dline20 = new Float32Array(1300);
+      this._dline21 = new Float32Array(1139);
+      this._dline22 = new Float32Array(1211);
+      this._dline23 = new Float32Array(1379);
+    }
+  }]);
+
+  return SCUnitFreeVerb2;
+}(SCUnit);
+
+dspProcess["aakkk"] = function (inNumSamples) {
+  var outL = this.outputs[0];
+  var outR = this.outputs[1];
+  var inInL = this.inputs[0];
+  var inInR = this.inputs[1];
+  var mix = clamp(this.inputs[2][0], 0, 1);
+  var room = clamp(this.inputs[3][0], 0, 1);
+  var damp = clamp(this.inputs[4][0], 0, 1);
+  var ftemp0 = mix;
+  var ftemp1 = 1 - ftemp0;
+  var ftemp5 = 0.7 + 0.28 * room;
+  var ftemp6 = 0.4 * damp;
+  var ftemp7 = 1 - ftemp6;
+  var dline0 = this._dline0;
+  var dline1 = this._dline1;
+  var dline2 = this._dline2;
+  var dline3 = this._dline3;
+  var dline4 = this._dline4;
+  var dline5 = this._dline5;
+  var dline6 = this._dline6;
+  var dline7 = this._dline7;
+  var dline8 = this._dline8;
+  var dline9 = this._dline9;
+  var dline10 = this._dline10;
+  var dline11 = this._dline11;
+  var dline12 = this._dline12;
+  var dline13 = this._dline13;
+  var dline14 = this._dline14;
+  var dline15 = this._dline15;
+  var dline16 = this._dline16;
+  var dline17 = this._dline17;
+  var dline18 = this._dline18;
+  var dline19 = this._dline19;
+  var dline20 = this._dline20;
+  var dline21 = this._dline21;
+  var dline22 = this._dline22;
+  var dline23 = this._dline23;
+
+  var iota0 = this._iota0;
+  var iota1 = this._iota1;
+  var iota2 = this._iota2;
+  var iota3 = this._iota3;
+  var iota4 = this._iota4;
+  var iota5 = this._iota5;
+  var iota6 = this._iota6;
+  var iota7 = this._iota7;
+  var iota8 = this._iota8;
+  var iota9 = this._iota9;
+  var iota10 = this._iota10;
+  var iota11 = this._iota11;
+  var iota12 = this._iota12;
+  var iota13 = this._iota13;
+  var iota14 = this._iota14;
+  var iota15 = this._iota15;
+  var iota16 = this._iota16;
+  var iota17 = this._iota17;
+  var iota18 = this._iota18;
+  var iota19 = this._iota19;
+  var iota20 = this._iota20;
+  var iota21 = this._iota21;
+  var iota22 = this._iota22;
+  var iota23 = this._iota23;
+  var R0_0 = this._R0_0;
+  var R1_0 = this._R1_0;
+  var R2_0 = this._R2_0;
+  var R3_0 = this._R3_0;
+  var R4_0 = this._R4_0;
+  var R5_0 = this._R5_0;
+  var R6_0 = this._R6_0;
+  var R7_0 = this._R7_0;
+  var R8_0 = this._R8_0;
+  var R9_0 = this._R9_0;
+  var R10_0 = this._R10_0;
+  var R11_0 = this._R11_0;
+  var R12_0 = this._R12_0;
+  var R13_0 = this._R13_0;
+  var R14_0 = this._R14_0;
+  var R15_0 = this._R15_0;
+  var R16_0 = this._R16_0;
+  var R17_0 = this._R17_0;
+  var R18_0 = this._R18_0;
+  var R19_0 = this._R19_0;
+  var R20_0 = this._R20_0;
+  var R21_0 = this._R21_0;
+  var R22_0 = this._R22_0;
+  var R23_0 = this._R23_0;
+  var R24_0 = this._R24_0;
+  var R25_0 = this._R25_0;
+  var R26_0 = this._R26_0;
+  var R27_0 = this._R27_0;
+  var R28_0 = this._R28_0;
+  var R29_0 = this._R29_0;
+  var R30_0 = this._R30_0;
+  var R31_0 = this._R31_0;
+  var R32_0 = this._R32_0;
+  var R33_0 = this._R33_0;
+  var R34_0 = this._R34_0;
+  var R35_0 = this._R35_0;
+  var R36_0 = this._R36_0;
+  var R37_0 = this._R37_0;
+  var R38_0 = this._R38_0;
+  var R39_0 = this._R39_0;
+  var R0_1 = this._R0_1;
+  var R1_1 = this._R1_1;
+  var R2_1 = this._R2_1;
+  var R3_1 = this._R3_1;
+  var R23_1 = this._R23_1;
+  var R22_1 = this._R22_1;
+  var R21_1 = this._R21_1;
+  var R20_1 = this._R20_1;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var ftemp2 = inInL[i];
+    var ftemp3 = inInR[i];
+    var ftemp4 = 1.5e-02 * (ftemp2 + ftemp3);
+
+    // left ch
+    iota0 = ++iota0 % 225;
+    iota1 = ++iota1 % 331;
+    iota2 = ++iota2 % 441;
+    iota3 = ++iota3 % 556;
+    iota4 = ++iota4 % 1617;
+    iota5 = ++iota5 % 1557;
+    iota6 = ++iota6 % 1491;
+    iota7 = ++iota7 % 1422;
+    iota8 = ++iota8 % 1277;
+    iota9 = ++iota9 % 1116;
+    iota10 = ++iota10 % 1188;
+    iota11 = ++iota11 % 1356;
+
+    var T0 = dline0[iota0];
+    var T1 = dline1[iota1];
+    var T2 = dline2[iota2];
+    var T3 = dline3[iota3];
+    var T4 = dline4[iota4];
+    var T5 = dline5[iota5];
+    var T6 = dline6[iota6];
+    var T7 = dline7[iota7];
+    var T8 = dline8[iota8];
+    var T9 = dline9[iota9];
+    var T10 = dline10[iota10];
+    var T11 = dline11[iota11];
+
+    R5_0 = ftemp7 * R4_0 + ftemp6 * R5_0;
+    dline4[iota4] = ftemp4 + ftemp5 * R5_0;
+    R4_0 = T4;
+
+    R7_0 = ftemp7 * R6_0 + ftemp6 * R7_0;
+    dline5[iota5] = ftemp4 + ftemp5 * R7_0;
+    R6_0 = T5;
+
+    R9_0 = ftemp7 * R8_0 + ftemp6 * R9_0;
+    dline6[iota6] = ftemp4 + ftemp5 * R9_0;
+    R8_0 = T6;
+
+    R11_0 = ftemp7 * R10_0 + ftemp6 * R11_0;
+    dline7[iota7] = ftemp4 + ftemp5 * R11_0;
+    R10_0 = T7;
+
+    R13_0 = ftemp7 * R12_0 + ftemp6 * R13_0;
+    dline8[iota8] = ftemp4 + ftemp5 * R13_0;
+    R12_0 = T8;
+
+    R15_0 = ftemp7 * R14_0 + ftemp6 * R15_0;
+    dline9[iota9] = ftemp4 + ftemp5 * R15_0;
+    R14_0 = T9;
+
+    R17_0 = ftemp7 * R16_0 + ftemp6 * R17_0;
+    dline10[iota10] = ftemp4 + ftemp5 * R17_0;
+    R16_0 = T10;
+
+    R19_0 = ftemp7 * R18_0 + ftemp6 * R19_0;
+    dline11[iota11] = ftemp4 + ftemp5 * R19_0;
+    R18_0 = T11;
+
+    dline3[iota3] = 0.5 * R3_0 + R4_0 + (R6_0 + R8_0) + (R10_0 + R12_0 + (R14_0 + (R16_0 + R18_0)));
+    R3_0 = T3;
+
+    R3_1 = R3_0 - (R4_0 + R6_0 + (R8_0 + R10_0) + (R12_0 + R14_0 + (R16_0 + R18_0)));
+    dline2[iota2] = 0.5 * R2_0 + R3_1;
+    R2_0 = T2;
+
+    R2_1 = R2_0 - R3_1;
+    dline1[iota1] = 0.5 * R1_0 + R2_1;
+    R1_0 = T1;
+
+    R1_1 = R1_0 - R2_1;
+    dline0[iota0] = 0.5 * R0_0 + R1_1;
+    R0_0 = T0;
+
+    R0_1 = R0_0 - R1_1;
+    outL[i] = ftemp1 * ftemp2 + ftemp0 * R0_1;
+
+    // right ch
+    iota12 = ++iota12 % 248;
+    iota13 = ++iota13 % 364;
+    iota14 = ++iota14 % 464;
+    iota15 = ++iota15 % 579;
+    iota16 = ++iota16 % 1640;
+    iota17 = ++iota17 % 1580;
+    iota18 = ++iota18 % 1514;
+    iota19 = ++iota19 % 1445;
+    iota20 = ++iota20 % 1300;
+    iota21 = ++iota21 % 1139;
+    iota22 = ++iota22 % 1211;
+    iota23 = ++iota23 % 1379;
+
+    var T12 = dline12[iota12];
+    var T13 = dline13[iota13];
+    var T14 = dline14[iota14];
+    var T15 = dline15[iota15];
+    var T16 = dline16[iota16];
+    var T17 = dline17[iota17];
+    var T18 = dline18[iota18];
+    var T19 = dline19[iota19];
+    var T20 = dline20[iota20];
+    var T21 = dline21[iota21];
+    var T22 = dline22[iota22];
+    var T23 = dline23[iota23];
+
+    R25_0 = ftemp7 * R24_0 + ftemp6 * R25_0;
+    dline16[iota16] = ftemp4 + ftemp5 * R25_0;
+    R24_0 = T16;
+
+    R27_0 = ftemp7 * R26_0 + ftemp6 * R27_0;
+    dline17[iota17] = ftemp4 + ftemp5 * R27_0;
+    R26_0 = T17;
+
+    R29_0 = ftemp7 * R28_0 + ftemp6 * R29_0;
+    dline18[iota18] = ftemp4 + ftemp5 * R29_0;
+    R28_0 = T18;
+
+    R31_0 = ftemp7 * R30_0 + ftemp6 * R31_0;
+    dline19[iota19] = ftemp4 + ftemp5 * R31_0;
+    R30_0 = T19;
+
+    R33_0 = ftemp7 * R32_0 + ftemp6 * R33_0;
+    dline20[iota20] = ftemp4 + ftemp5 * R33_0;
+    R32_0 = T20;
+
+    R35_0 = ftemp7 * R34_0 + ftemp6 * R35_0;
+    dline21[iota21] = ftemp4 + ftemp5 * R35_0;
+    R34_0 = T21;
+
+    R37_0 = ftemp7 * R36_0 + ftemp6 * R37_0;
+    dline22[iota22] = ftemp4 + ftemp5 * R37_0;
+    R36_0 = T22;
+
+    R39_0 = ftemp7 * R38_0 + ftemp6 * R39_0;
+    dline23[iota23] = ftemp4 + ftemp5 * R39_0;
+    R38_0 = T23;
+
+    dline15[iota15] = 0.5 * R23_0 + R24_0 + (R26_0 + R28_0) + (R30_0 + R32_0 + (R34_0 + (R36_0 + R38_0)));
+    R23_0 = T15;
+
+    R23_1 = R23_0 - (R24_0 + R26_0 + (R28_0 + R30_0) + (R32_0 + R34_0 + (R36_0 + R38_0)));
+    dline14[iota14] = 0.5 * R22_0 + R23_1;
+    R22_0 = T14;
+
+    R22_1 = R22_0 - R23_1;
+    dline13[iota13] = 0.5 * R21_0 + R22_1;
+    R21_0 = T13;
+
+    R21_1 = R21_0 - R22_1;
+    dline12[iota12] = 0.5 * R20_0 + R21_1;
+    R20_0 = T12;
+
+    R20_1 = R20_0 - R21_1;
+    outR[i] = ftemp1 * ftemp3 + ftemp0 * R20_1;
+  }
+
+  this._iota0 = iota0;
+  this._iota1 = iota1;
+  this._iota2 = iota2;
+  this._iota3 = iota3;
+  this._iota4 = iota4;
+  this._iota5 = iota5;
+  this._iota6 = iota6;
+  this._iota7 = iota7;
+  this._iota8 = iota8;
+  this._iota9 = iota9;
+  this._iota10 = iota10;
+  this._iota11 = iota11;
+  this._iota12 = iota12;
+  this._iota13 = iota13;
+  this._iota14 = iota14;
+  this._iota15 = iota15;
+  this._iota16 = iota16;
+  this._iota17 = iota17;
+  this._iota18 = iota18;
+  this._iota19 = iota19;
+  this._iota20 = iota20;
+  this._iota21 = iota21;
+  this._iota22 = iota22;
+  this._iota23 = iota23;
+
+  this._R0_1 = R0_1;
+  this._R1_1 = R1_1;
+  this._R2_1 = R2_1;
+  this._R3_1 = R3_1;
+
+  this._R20_1 = R20_1;
+  this._R21_1 = R21_1;
+  this._R22_1 = R22_1;
+  this._R23_1 = R23_1;
+
+  this._R0_0 = R0_0;
+  this._R1_0 = R1_0;
+  this._R2_0 = R2_0;
+  this._R3_0 = R3_0;
+  this._R4_0 = R4_0;
+  this._R5_0 = R5_0;
+  this._R6_0 = R6_0;
+  this._R7_0 = R7_0;
+  this._R8_0 = R8_0;
+  this._R9_0 = R9_0;
+  this._R10_0 = R10_0;
+  this._R11_0 = R11_0;
+  this._R12_0 = R12_0;
+  this._R13_0 = R13_0;
+  this._R14_0 = R14_0;
+  this._R15_0 = R15_0;
+  this._R16_0 = R16_0;
+  this._R17_0 = R17_0;
+  this._R18_0 = R18_0;
+  this._R19_0 = R19_0;
+  this._R20_0 = R20_0;
+  this._R21_0 = R21_0;
+  this._R22_0 = R22_0;
+  this._R23_0 = R23_0;
+  this._R24_0 = R24_0;
+  this._R25_0 = R25_0;
+  this._R26_0 = R26_0;
+  this._R27_0 = R27_0;
+  this._R28_0 = R28_0;
+  this._R29_0 = R29_0;
+  this._R30_0 = R30_0;
+  this._R31_0 = R31_0;
+  this._R32_0 = R32_0;
+  this._R33_0 = R33_0;
+  this._R34_0 = R34_0;
+  this._R35_0 = R35_0;
+  this._R36_0 = R36_0;
+  this._R37_0 = R37_0;
+  this._R38_0 = R38_0;
+  this._R39_0 = R39_0;
+};
+
+SCUnitRepository.registerSCUnitClass("FreeVerb2", SCUnitFreeVerb2);
+
+module.exports = SCUnitFreeVerb2;
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213}],79:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5228,7 +8399,7 @@ dspProcess["next_ak"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Gate", SCUnitGate);
 module.exports = SCUnitGate;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/fillRange":173}],55:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/fillRange":215}],80:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5275,7 +8446,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("GrayNoise", SCUnitGrayNoise);
 module.exports = SCUnitGrayNoise;
-},{"../SCUnit":12,"../SCUnitRepository":13}],56:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],81:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5362,7 +8533,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("HPF", SCUnitHPF);
 module.exports = SCUnitHPF;
-},{"../SCUnit":12,"../SCUnitRepository":13}],57:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],82:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5411,7 +8582,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("HPZ1", SCUnitHPZ1);
 module.exports = SCUnitHPZ1;
-},{"../SCUnit":12,"../SCUnitRepository":13}],58:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],83:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5464,7 +8635,69 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("HPZ2", SCUnitHPZ2);
 module.exports = SCUnitHPZ2;
-},{"../SCUnit":12,"../SCUnitRepository":13}],59:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],84:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+
+var f32 = new Float32Array(1);
+var i32 = new Int32Array(f32.buffer);
+var dspProcess = {};
+
+var SCUnitHasher = function (_SCUnit) {
+  _inherits(SCUnitHasher, _SCUnit);
+
+  function SCUnitHasher() {
+    _classCallCheck(this, SCUnitHasher);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitHasher).apply(this, arguments));
+  }
+
+  _createClass(SCUnitHasher, [{
+    key: "initialize",
+    value: function initialize() {
+      this.dspProcess = dspProcess["a"];
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitHasher;
+}(SCUnit);
+
+dspProcess["a"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+
+  for (var i = 0; i < inNumSamples; i++) {
+    f32[0] = inIn[i];
+    i32[0] = 0x40000000 | hash(i32[0]) >>> 9;
+    out[i] = f32[0] - 3;
+  }
+};
+
+function hash(hash) {
+  hash += ~(hash << 15);
+  hash ^= hash >> 10;
+  hash += hash << 3;
+  hash ^= hash >> 6;
+  hash += ~(hash << 11);
+  hash ^= hash >> 16;
+  return hash;
+}
+
+SCUnitRepository.registerSCUnitClass("Hasher", SCUnitHasher);
+
+module.exports = SCUnitHasher;
+},{"../SCUnit":12,"../SCUnitRepository":13}],85:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5502,7 +8735,7 @@ var SCUnitIRand = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("IRand", SCUnitIRand);
 module.exports = SCUnitIRand;
-},{"../SCUnit":12,"../SCUnitRepository":13}],60:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],86:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5597,7 +8830,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Impulse", SCUnitImpulse);
 module.exports = SCUnitImpulse;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],61:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],87:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5646,7 +8879,7 @@ dspProcess["k"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("In", SCUnitIn);
 module.exports = SCUnitIn;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],62:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],88:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5693,7 +8926,61 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("InRange", SCUnitInRange);
 module.exports = SCUnitInRange;
-},{"../SCUnit":12,"../SCUnitRepository":13}],63:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],89:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var SCUnitInRect = function (_SCUnit) {
+  _inherits(SCUnitInRect, _SCUnit);
+
+  function SCUnitInRect() {
+    _classCallCheck(this, SCUnitInRect);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitInRect).apply(this, arguments));
+  }
+
+  _createClass(SCUnitInRect, [{
+    key: "initialize",
+    value: function initialize() {
+      this.dspProcess = dspProcess["aakkkk"];
+    }
+  }]);
+
+  return SCUnitInRect;
+}(SCUnit);
+
+dspProcess["aakkkk"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var xIn = this.inputs[0];
+  var yIn = this.inputs[1];
+  var left = this.inputs[2][0];
+  var top = this.inputs[3][0];
+  var right = this.inputs[4][0];
+  var bottom = this.inputs[5][0];
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var x = xIn[i];
+    var y = yIn[i];
+
+    out[i] = left <= x && x <= right && top <= y && y <= bottom ? 1 : 0;
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("InRect", SCUnitInRect);
+
+module.exports = SCUnitInRect;
+},{"../SCUnit":12,"../SCUnitRepository":13}],90:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5752,7 +9039,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Integrator", SCUnitIntegrator);
 module.exports = SCUnitIntegrator;
-},{"../SCUnit":12,"../SCUnitRepository":13}],64:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],91:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5780,19 +9067,21 @@ var SCUnitK2A = function (_SCUnit) {
   _createClass(SCUnitK2A, [{
     key: "initialize",
     value: function initialize() {
-      this.dspProcess = dspProcess["next"];
+      this.dspProcess = dspProcess["a"];
     }
   }]);
 
   return SCUnitK2A;
 }(SCUnit);
 
-dspProcess["next"] = function (inNumSamples) {
+dspProcess["a"] = function (inNumSamples) {
   fillRange(this.outputs[0], this.inputs[0][0], 0, inNumSamples);
 };
+
 SCUnitRepository.registerSCUnitClass("K2A", SCUnitK2A);
+
 module.exports = SCUnitK2A;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fillRange":173}],65:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fillRange":215}],92:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -5851,7 +9140,7 @@ dspProcess["next"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("KeyState", SCUnitKeyState);
 module.exports = SCUnitKeyState;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],66:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],93:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -6201,7 +9490,7 @@ dspProcess["next0"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Klang", SCUnitKlang);
 module.exports = SCUnitKlang;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],67:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":214}],94:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -6698,7 +9987,7 @@ dspProcess["next0"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Klank", SCUnitKlank);
 module.exports = SCUnitKlank;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],68:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":214}],95:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -6760,7 +10049,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFClipNoise", SCUnitLFClipNoise);
 module.exports = SCUnitLFClipNoise;
-},{"../SCUnit":12,"../SCUnitRepository":13}],69:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],96:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -6818,7 +10107,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFCub", SCUnitLFCub);
 module.exports = SCUnitLFCub;
-},{"../SCUnit":12,"../SCUnitRepository":13}],70:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],97:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -6898,7 +10187,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFDClipNoise", SCUnitLFDClipNoise);
 module.exports = SCUnitLFDClipNoise;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],71:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],98:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -6978,7 +10267,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFDNoise0", SCUnitLFDNoise0);
 module.exports = SCUnitLFDNoise0;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],72:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],99:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7065,7 +10354,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFDNoise1", SCUnitLFDNoise1);
 module.exports = SCUnitLFDNoise1;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],73:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],100:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7167,7 +10456,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFDNoise3", SCUnitLFDNoise3);
 module.exports = SCUnitLFDNoise3;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_cubicinterp":175}],74:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_cubicinterp":217}],101:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7229,7 +10518,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFNoise0", SCUnitLFNoise0);
 module.exports = SCUnitLFNoise0;
-},{"../SCUnit":12,"../SCUnitRepository":13}],75:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],102:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7296,7 +10585,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFNoise1", SCUnitLFNoise1);
 module.exports = SCUnitLFNoise1;
-},{"../SCUnit":12,"../SCUnitRepository":13}],76:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],103:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7373,7 +10662,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFNoise2", SCUnitLFNoise2);
 module.exports = SCUnitLFNoise2;
-},{"../SCUnit":12,"../SCUnitRepository":13}],77:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],104:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7435,7 +10724,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFPar", SCUnitLFPar);
 module.exports = SCUnitLFPar;
-},{"../SCUnit":12,"../SCUnitRepository":13}],78:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],105:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7496,7 +10785,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFPulse", SCUnitLFPulse);
 module.exports = SCUnitLFPulse;
-},{"../SCUnit":12,"../SCUnitRepository":13}],79:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],106:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7558,7 +10847,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFSaw", SCUnitLFSaw);
 module.exports = SCUnitLFSaw;
-},{"../SCUnit":12,"../SCUnitRepository":13}],80:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],107:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7610,7 +10899,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LFTri", SCUnitLFTri);
 module.exports = SCUnitLFTri;
-},{"../SCUnit":12,"../SCUnitRepository":13}],81:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],108:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7697,7 +10986,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LPF", SCUnitLPF);
 module.exports = SCUnitLPF;
-},{"../SCUnit":12,"../SCUnitRepository":13}],82:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],109:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7746,7 +11035,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LPZ1", SCUnitLPZ1);
 module.exports = SCUnitLPZ1;
-},{"../SCUnit":12,"../SCUnitRepository":13}],83:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],110:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7799,7 +11088,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LPZ2", SCUnitLPZ2);
 module.exports = SCUnitLPZ2;
-},{"../SCUnit":12,"../SCUnitRepository":13}],84:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],111:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7881,7 +11170,7 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("Lag", SCUnitLag);
 module.exports = SCUnitLag;
-},{"../SCUnit":12,"../SCUnitRepository":13}],85:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],112:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -7990,7 +11279,7 @@ dspProcess["next_1_i"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("Lag2", SCUnitLag2);
 module.exports = SCUnitLag2;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],86:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],113:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8087,7 +11376,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Lag2UD", SCUnitLag2UD);
 module.exports = SCUnitLag2UD;
-},{"../SCUnit":12,"../SCUnitRepository":13}],87:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],114:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8189,7 +11478,7 @@ dspProcess["next_1_i"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("Lag3", SCUnitLag3);
 module.exports = SCUnitLag3;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],88:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],115:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8299,7 +11588,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Lag3UD", SCUnitLag3UD);
 module.exports = SCUnitLag3UD;
-},{"../SCUnit":12,"../SCUnitRepository":13}],89:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],116:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8371,7 +11660,7 @@ dspProcess["k"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("LagControl", SCUnitLagControl);
 module.exports = SCUnitLagControl;
-},{"../SCUnit":12,"../SCUnitRepository":13}],90:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],117:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8451,7 +11740,99 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LagUD", SCUnitLagUD);
 module.exports = SCUnitLagUD;
-},{"../SCUnit":12,"../SCUnitRepository":13}],91:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],118:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var fill = require("../util/fill");
+
+var dspProcess = {};
+
+var SCUnitLastValue = function (_SCUnit) {
+  _inherits(SCUnitLastValue, _SCUnit);
+
+  function SCUnitLastValue() {
+    _classCallCheck(this, SCUnitLastValue);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitLastValue).apply(this, arguments));
+  }
+
+  _createClass(SCUnitLastValue, [{
+    key: "initialize",
+    value: function initialize() {
+
+      if (this.inputSpecs[0].rate === C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["ak"];
+      } else {
+        this.dspProcess = dspProcess["kk"];
+      }
+
+      this._prev = this.inputs[0][0];
+      this._curr = this.inputs[0][0];
+    }
+  }]);
+
+  return SCUnitLastValue;
+}(SCUnit);
+
+dspProcess["ak"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var delta = this.inputs[1][0];
+
+  var prev = this._prev;
+  var curr = this._curr;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var inval = inIn[i];
+    var diff = Math.abs(inval - curr);
+
+    if (delta <= diff) {
+      prev = curr;
+      curr = inval;
+    }
+    out[i] = prev;
+  }
+
+  this._prev = prev;
+  this._curr = curr;
+};
+
+dspProcess["kk"] = function () {
+  var out = this.outputs[0];
+  var inval = this.inputs[0][0];
+  var delta = this.inputs[1][0];
+
+  var prev = this._prev;
+  var curr = this._curr;
+
+  var diff = Math.abs(inval - curr);
+
+  if (delta <= diff) {
+    prev = curr;
+    curr = inval;
+  }
+
+  fill(out, prev);
+
+  this._prev = prev;
+  this._curr = curr;
+};
+
+SCUnitRepository.registerSCUnitClass("LastValue", SCUnitLastValue);
+
+module.exports = SCUnitLastValue;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":214}],119:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8524,7 +11905,7 @@ dspProcess["next_ak"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Latch", SCUnitLatch);
 module.exports = SCUnitLatch;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/fillRange":173}],92:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/fillRange":215}],120:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8623,7 +12004,280 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("LeakDC", SCUnitLeakDC);
 module.exports = SCUnitLeakDC;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],93:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],121:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+
+var dspProcess = {};
+
+var SCUnitLeastChange = function (_SCUnit) {
+  _inherits(SCUnitLeastChange, _SCUnit);
+
+  function SCUnitLeastChange() {
+    _classCallCheck(this, SCUnitLeastChange);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitLeastChange).apply(this, arguments));
+  }
+
+  _createClass(SCUnitLeastChange, [{
+    key: "initialize",
+    value: function initialize() {
+
+      if (this.inputSpecs[0].rate === C.RATE_AUDIO) {
+        if (this.inputSpecs[1].rate === C.RATE_AUDIO) {
+          this.dspProcess = dspProcess["aa"];
+        } else {
+          this.dspProcess = dspProcess["ak"];
+        }
+      } else if (this.inputSpecs[1].rate === C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["ka"];
+      } else {
+        this.dspProcess = dspProcess["aa"];
+      }
+
+      this._prevA = 0;
+      this._prevB = 0;
+      this._recent = 1;
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitLeastChange;
+}(SCUnit);
+
+dspProcess["aa"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var aIn = this.inputs[0];
+  var bIn = this.inputs[1];
+
+  var prevA = this._prevA;
+  var prevB = this._prevB;
+  var recent = this._recent;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var xa = aIn[i];
+    var xb = bIn[i];
+    var diff = Math.abs(xa - prevA) - Math.abs(xb - prevB);
+
+    if (diff < 0) {
+      recent = 0;
+      out[i] = xa;
+    } else if (0 < diff) {
+      recent = 1;
+      out[i] = xb;
+    } else {
+      out[i] = recent ? xb : xa;
+    }
+
+    prevA = xa;
+    prevB = xb;
+  }
+
+  this._prevA = prevA;
+  this._prevB = prevB;
+  this._recent = recent;
+};
+
+dspProcess["ak"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var aIn = this.inputs[0];
+  var xb = this.inputs[1][0];
+  var db = Math.abs(xb - this._prevB);
+
+  var prevA = this._prevA;
+  var recent = this._recent;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var xa = aIn[i];
+    var diff = Math.abs(xa - prevA) - db;
+
+    if (diff < 0) {
+      recent = 0;
+      out[i] = xa;
+    } else if (0 < diff) {
+      recent = 1;
+      out[i] = xb;
+    } else {
+      out[i] = recent ? xb : xa;
+    }
+
+    prevA = xa;
+  }
+
+  this._prevA = prevA;
+  this._prevB = db;
+  this._recent = recent;
+};
+
+dspProcess["ka"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var xa = this.inputs[0][0];
+  var da = Math.abs(xa - this._prevA);
+  var bIn = this.inputs[1];
+
+  var prevB = this._prevB;
+  var recent = this._recent;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var xb = bIn[i];
+    var diff = da - Math.abs(xb - prevB);
+
+    if (diff < 0) {
+      recent = 0;
+      out[i] = xa;
+    } else if (0 < diff) {
+      recent = 1;
+      out[i] = xb;
+    } else {
+      out[i] = recent ? xb : xa;
+    }
+
+    prevB = xb;
+  }
+
+  this._prevA = xa;
+  this._prevB = prevB;
+  this._recent = recent;
+};
+
+SCUnitRepository.registerSCUnitClass("LeastChange", SCUnitLeastChange);
+
+module.exports = SCUnitLeastChange;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],122:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var SCUnitLimiter = function (_SCUnit) {
+  _inherits(SCUnitLimiter, _SCUnit);
+
+  function SCUnitLimiter() {
+    _classCallCheck(this, SCUnitLimiter);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitLimiter).apply(this, arguments));
+  }
+
+  _createClass(SCUnitLimiter, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      this.dspProcess = dspProcess["aki"];
+
+      var dur = Math.max(rate.bufferDuration, this.inputs[2][0]);
+      var bufSize = Math.ceil(dur * rate.sampleRate);
+
+      this._bufSize = bufSize;
+      this._flips = 0;
+      this._pos = 0;
+      this._level = 1;
+      this._level_slope = 0;
+      this._prevmaxval = 0;
+      this._curmaxval = 0;
+      this._slopeFactor = 1 / bufSize;
+      this._xinbuf = new Float32Array(bufSize);
+      this._xmidbuf = new Float32Array(bufSize);
+      this._xoutbuf = new Float32Array(bufSize);
+    }
+  }]);
+
+  return SCUnitLimiter;
+}(SCUnit);
+
+dspProcess["aki"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var amp = this.inputs[1][0];
+  var bufSize = this._bufSize;
+  var level = this._level;
+
+  var pos = this._pos;
+  var next_level = this._level;
+  var level_slope = this._level_slope;
+  var curmaxval = this._curmaxval;
+
+  var bufRemain = bufSize - pos;
+  var remain = inNumSamples;
+  var val = void 0,
+      j = 0;
+
+  while (remain) {
+    var nsmps = Math.min(remain, bufRemain);
+    var xinbuf = this._xinbuf;
+    var xoutbuf = this._xoutbuf;
+
+    if (2 <= this._flips) {
+      for (var i = 0; i < nsmps; i++) {
+        var x = (level + level_slope * i) * xoutbuf[pos + j];
+        xinbuf[pos + j] = val = inIn[j];
+        out[j++] = x;
+        curmaxval = Math.max(curmaxval, Math.abs(val));
+      }
+    } else {
+      for (var _i = 0; _i < nsmps; _i++) {
+        xinbuf[pos + j] = val = inIn[j];
+        out[j++] = 0;
+        curmaxval = Math.max(curmaxval, Math.abs(val));
+      }
+    }
+
+    pos += nsmps;
+
+    if (bufSize <= pos) {
+      pos = 0;
+      bufRemain = bufSize;
+
+      var maxval2 = Math.max(this._prevmaxval, curmaxval);
+
+      this._prevmaxval = curmaxval;
+      this._curmaxval = curmaxval = 0;
+
+      next_level = amp < maxval2 ? amp / maxval2 : 1;
+      level_slope = (next_level - level) * this._slopeFactor;
+
+      var _ref = [this._xmidbuf, this._xinbuf, this._xoutbuf];
+      this._xoutbuf = _ref[0];
+      this._xmidbuf = _ref[1];
+      this._xinbuf = _ref[2];
+
+
+      this._flips += 1;
+    }
+
+    remain -= nsmps;
+  }
+
+  this._pos = pos;
+  this._level = next_level;
+  this._level_slope = level_slope;
+  this._curmaxval = curmaxval;
+};
+
+SCUnitRepository.registerSCUnitClass("Limiter", SCUnitLimiter);
+
+module.exports = SCUnitLimiter;
+},{"../SCUnit":12,"../SCUnitRepository":13}],123:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8721,7 +12375,7 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("LinExp", SCUnitLinExp);
 module.exports = SCUnitLinExp;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],94:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],124:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8819,7 +12473,126 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("LinLin", SCUnitLinLin);
 module.exports = SCUnitLinLin;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],95:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],125:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var clamp = require("../util/clamp");
+
+var dspProcess = {};
+
+var SCUnitLinPan2 = function (_SCUnit) {
+  _inherits(SCUnitLinPan2, _SCUnit);
+
+  function SCUnitLinPan2() {
+    _classCallCheck(this, SCUnitLinPan2);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitLinPan2).apply(this, arguments));
+  }
+
+  _createClass(SCUnitLinPan2, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      if (this.inputSpecs[1].rate === C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["aak"];
+      } else {
+        this.dspProcess = dspProcess["akk"];
+      }
+
+      this._slopeFactor = rate.slopeFactor;
+      this._level = this.inputs[2][0];
+      this._pan = clamp(this.inputs[1][0] * 0.5 + 0.5, 0, 1);
+      this._rightAmp = this._level * this._pan;
+      this._leftAmp = this._level * (1 - this._pan);
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitLinPan2;
+}(SCUnit);
+
+dspProcess["aak"] = function (inNumSamples) {
+  var leftOut = this.outputs[0];
+  var rightOut = this.outputs[1];
+  var inIn = this.inputs[0];
+  var posIn = this.inputs[1];
+  var level = this._level;
+  var next_level = this.inputs[2][0];
+
+  var pan = void 0;
+
+  if (level !== next_level) {
+    var level_slope = (next_level - level) * this._slopeFactor;
+
+    for (var i = 0; i < inNumSamples; i++) {
+      pan = clamp(posIn[i] * 0.5 + 0.5, 0, 1);
+
+      var amp = level + level_slope * i;
+      var rightAmp = amp * pan;
+      var leftAmp = amp * (1 - pan);
+
+      leftOut[i] = inIn[i] * leftAmp;
+      rightOut[i] = inIn[i] * rightAmp;
+    }
+
+    this._level = next_level;
+  } else {
+    for (var _i = 0; _i < inNumSamples; _i++) {
+      pan = clamp(posIn[_i] * 0.5 + 0.5, 0, 1);
+      leftOut[_i] = inIn[_i] * (level * (1 - pan));
+      rightOut[_i] = inIn[_i] * (level * pan);
+    }
+  }
+};
+
+dspProcess["akk"] = function (inNumSamples) {
+  var leftOut = this.outputs[0];
+  var rightOut = this.outputs[1];
+  var inIn = this.inputs[0];
+  var next_pan = clamp(this.inputs[1][0] * 0.5 + 0.5, 0, 1);
+  var next_level = this.inputs[2][0];
+  var leftAmp = this._leftAmp;
+  var rightAmp = this._rightAmp;
+
+  if (this._pan !== next_pan || this._level !== next_level) {
+    var next_rightAmp = next_level * next_pan;
+    var next_leftAmp = next_level * (1 - next_pan);
+    var leftAmp_slope = (next_leftAmp - leftAmp) * this._slopeFactor;
+    var rightAmp_slope = (next_rightAmp - rightAmp) * this._slopeFactor;
+
+    for (var i = 0; i < inNumSamples; i++) {
+      leftOut[i] = inIn[i] * (leftAmp + leftAmp_slope * i);
+      rightOut[i] = inIn[i] * (rightAmp + rightAmp_slope * i);
+    }
+
+    this._pan = next_pan;
+    this._level = next_level;
+    this._leftAmp = next_leftAmp;
+    this._rightAmp = next_rightAmp;
+  } else {
+    for (var _i2 = 0; _i2 < inNumSamples; _i2++) {
+      leftOut[_i2] = inIn[_i2] * leftAmp;
+      rightOut[_i2] = inIn[_i2] * rightAmp;
+    }
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("LinPan2", SCUnitLinPan2);
+
+module.exports = SCUnitLinPan2;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213}],126:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8864,7 +12637,7 @@ var SCUnitLinRand = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("LinRand", SCUnitLinRand);
 module.exports = SCUnitLinRand;
-},{"../SCUnit":12,"../SCUnitRepository":13}],96:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],127:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8941,7 +12714,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("LinXFade2", SCUnitLinXFade2);
 module.exports = SCUnitLinXFade2;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],97:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],128:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9022,7 +12795,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Line", SCUnitLine);
 module.exports = SCUnitLine;
-},{"../SCUnit":12,"../SCUnitRepository":13}],98:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],129:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9115,7 +12888,7 @@ dspProcess["next"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("Linen", SCUnitLinen);
 module.exports = SCUnitLinen;
-},{"../SCUnit":12,"../SCUnitRepository":13}],99:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],130:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9179,7 +12952,164 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Logistic", SCUnitLogistic);
 module.exports = SCUnitLogistic;
-},{"../SCUnit":12,"../SCUnitRepository":13}],100:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],131:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+
+var f32 = new Float32Array(1);
+var i32 = new Int32Array(f32.buffer);
+var dspProcess = {};
+
+var SCUnitMantissaMask = function (_SCUnit) {
+  _inherits(SCUnitMantissaMask, _SCUnit);
+
+  function SCUnitMantissaMask() {
+    _classCallCheck(this, SCUnitMantissaMask);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitMantissaMask).apply(this, arguments));
+  }
+
+  _createClass(SCUnitMantissaMask, [{
+    key: "initialize",
+    value: function initialize() {
+      this.dspProcess = dspProcess["ak"];
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitMantissaMask;
+}(SCUnit);
+
+dspProcess["ak"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var bits = this.inputs[0][1] | 0;
+  var mask = -1 << 23 - bits;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    f32[0] = inIn[i];
+    i32[0] = mask & i32[0];
+    out[i] = f32[0];
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("MantissaMask", SCUnitMantissaMask);
+
+module.exports = SCUnitMantissaMask;
+},{"../SCUnit":12,"../SCUnitRepository":13}],132:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var nmap = require("nmap");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var clamp = require("../util/clamp");
+var dspProcess = {};
+
+var kMAXMEDIANSIZE = 31;
+
+var SCUnitMedian = function (_SCUnit) {
+  _inherits(SCUnitMedian, _SCUnit);
+
+  function SCUnitMedian() {
+    _classCallCheck(this, SCUnitMedian);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitMedian).apply(this, arguments));
+  }
+
+  _createClass(SCUnitMedian, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["ia"];
+
+      var medianSize = clamp(this.inputs[0][0] | 0, 3, kMAXMEDIANSIZE);
+
+      if (medianSize % 2 === 0) {
+        medianSize += 1;
+      }
+
+      var _in = this.inputs[1][0];
+
+      this._medianSize = medianSize;
+      this._medialVal = new Float32Array(nmap(medianSize, function () {
+        return _in;
+      }));
+      this._medianAge = new Uint8Array(nmap(medianSize, function (_, i) {
+        return i;
+      }));
+
+      this.outputs[0][0] = _in;
+    }
+  }]);
+
+  return SCUnitMedian;
+}(SCUnit);
+
+function computeMedian(unit, value) {
+  var medianSize = unit._medianSize;
+  var medialVal = unit._medialVal;
+  var medianAge = unit._medianAge;
+  var last = medianSize - 1;
+
+  var pos = -1;
+
+  for (var i = 0; i < medianSize; i++) {
+    if (medianAge[i] === last) {
+      pos = i;
+    } else {
+      medianAge[i] += 1;
+    }
+  }
+
+  while (1 <= pos && value < medialVal[pos - 1]) {
+    medialVal[pos] = medialVal[pos - 1];
+    medianAge[pos] = medianAge[pos - 1];
+    pos -= 1;
+  }
+
+  while (pos < last && medialVal[pos + 1] < value) {
+    medialVal[pos] = medialVal[pos + 1];
+    medianAge[pos] = medianAge[pos + 1];
+    pos += 1;
+  }
+
+  medialVal[pos] = value;
+  medianAge[pos] = 0;
+
+  return medialVal[medianSize >> 1];
+}
+
+dspProcess["ia"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[1];
+
+  for (var i = 0; i < inNumSamples; i++) {
+    out[i] = computeMedian(this, inIn[i]);
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("Median", SCUnitMedian);
+
+module.exports = SCUnitMedian;
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"nmap":2}],133:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9274,7 +13204,296 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("MidEQ", SCUnitMidEQ);
 module.exports = SCUnitMidEQ;
-},{"../SCUnit":12,"../SCUnitRepository":13}],101:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],134:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var SCUnitModDif = function (_SCUnit) {
+  _inherits(SCUnitModDif, _SCUnit);
+
+  function SCUnitModDif() {
+    _classCallCheck(this, SCUnitModDif);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitModDif).apply(this, arguments));
+  }
+
+  _createClass(SCUnitModDif, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      if (this.calcRate !== C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["aaa"];
+      } else {
+        if (this.inputSpecs[1].rate === C.RATE_AUDIO) {
+          if (this.inputSpecs[2].rate === C.RATE_AUDIO) {
+            this.dspProcess = dspProcess["aaa"];
+          } else {
+            this.dspProcess = dspProcess["aak"];
+          }
+        } else if (this.inputSpecs[2].rate === C.RATE_AUDIO) {
+          this.dspProcess = dspProcess["aka"];
+        } else {
+          this.dspProcess = dspProcess["akk"];
+        }
+      }
+
+      this.dspProcess = dspProcess["a"];
+
+      this._slopeFactor = rate.slopeFactor;
+      this._dif = this.inputs[1][0];
+      this._mod = this.inputs[2][0];
+    }
+  }]);
+
+  return SCUnitModDif;
+}(SCUnit);
+
+dspProcess["aaa"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var difIn = this.inputs[1];
+  var modIn = this.inputs[2];
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var _in = inIn[i];
+    var curmod = modIn[i];
+    var diff = Math.abs(_in - difIn[i]) % curmod;
+    var modhalf = curmod * 0.5;
+
+    out[i] = modhalf - Math.abs(diff - modhalf);
+  }
+};
+
+dspProcess["aak"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var difIn = this.inputs[1];
+  var mod = this._mod;
+  var next_mod = this.inputs[2][0];
+  var mod_slope = (next_mod - mod) * this._slopeFactor;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var _in = inIn[i];
+    var curmod = mod + mod_slope * i;
+    var diff = Math.abs(_in - difIn[i]) % curmod;
+    var modhalf = curmod * 0.5;
+
+    out[i] = modhalf - Math.abs(diff - modhalf);
+  }
+
+  this._mod = next_mod;
+};
+
+dspProcess["aka"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var dif = this._dif;
+  var modIn = this.inputs[2];
+  var next_dif = this.inputs[1][0];
+  var dif_slope = (next_dif - dif) * this._slopeFactor;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var _in = inIn[i];
+    var curmod = modIn[i];
+    var diff = Math.abs(_in - (dif + dif_slope * i)) % curmod;
+    var modhalf = curmod * 0.5;
+
+    out[i] = modhalf - Math.abs(diff - modhalf);
+  }
+
+  this._dif = next_dif;
+};
+
+dspProcess["akk"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var dif = this._dif;
+  var mod = this._mod;
+  var next_dif = this.inputs[1][0];
+  var next_mod = this.inputs[2][0];
+  var dif_slope = (next_dif - dif) * this._slopeFactor;
+  var mod_slope = (next_mod - mod) * this._slopeFactor;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var _in = inIn[i];
+    var curmod = mod + mod_slope * i;
+    var diff = Math.abs(_in - (dif + dif_slope * i)) % curmod;
+    var modhalf = curmod * 0.5;
+
+    out[i] = modhalf - Math.abs(diff - modhalf);
+  }
+
+  this._dif = next_dif;
+  this._mod = next_mod;
+};
+
+SCUnitRepository.registerSCUnitClass("ModDif", SCUnitModDif);
+
+module.exports = SCUnitModDif;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],135:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+
+var dspProcess = {};
+
+var SCUnitMostChange = function (_SCUnit) {
+  _inherits(SCUnitMostChange, _SCUnit);
+
+  function SCUnitMostChange() {
+    _classCallCheck(this, SCUnitMostChange);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitMostChange).apply(this, arguments));
+  }
+
+  _createClass(SCUnitMostChange, [{
+    key: "initialize",
+    value: function initialize() {
+
+      if (this.inputSpecs[0].rate === C.RATE_AUDIO) {
+        if (this.inputSpecs[1].rate === C.RATE_AUDIO) {
+          this.dspProcess = dspProcess["aa"];
+        } else {
+          this.dspProcess = dspProcess["ak"];
+        }
+      } else if (this.inputSpecs[1].rate === C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["ka"];
+      } else {
+        this.dspProcess = dspProcess["aa"];
+      }
+
+      this._prevA = 0;
+      this._prevB = 0;
+      this._recent = 1;
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitMostChange;
+}(SCUnit);
+
+dspProcess["aa"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var aIn = this.inputs[0];
+  var bIn = this.inputs[1];
+
+  var prevA = this._prevA;
+  var prevB = this._prevB;
+  var recent = this._recent;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var xa = aIn[i];
+    var xb = bIn[i];
+    var diff = Math.abs(xa - prevA) - Math.abs(xb - prevB);
+
+    if (0 < diff) {
+      recent = 0;
+      out[i] = xa;
+    } else if (diff < 0) {
+      recent = 1;
+      out[i] = xb;
+    } else {
+      out[i] = recent ? xb : xa;
+    }
+
+    prevA = xa;
+    prevB = xb;
+  }
+
+  this._prevA = prevA;
+  this._prevB = prevB;
+  this._recent = recent;
+};
+
+dspProcess["ak"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var aIn = this.inputs[0];
+  var xb = this.inputs[1][0];
+  var db = Math.abs(xb - this._prevB);
+
+  var prevA = this._prevA;
+  var recent = this._recent;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var xa = aIn[i];
+    var diff = Math.abs(xa - prevA) - db;
+
+    if (0 < diff) {
+      recent = 0;
+      out[i] = xa;
+    } else if (diff < 0) {
+      recent = 1;
+      out[i] = xb;
+    } else {
+      out[i] = recent ? xb : xa;
+    }
+
+    prevA = xa;
+  }
+
+  this._prevA = prevA;
+  this._prevB = db;
+  this._recent = recent;
+};
+
+dspProcess["ka"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var xa = this.inputs[0][0];
+  var da = Math.abs(xa - this._prevA);
+  var bIn = this.inputs[1];
+
+  var prevB = this._prevB;
+  var recent = this._recent;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var xb = bIn[i];
+    var diff = da - Math.abs(xb - prevB);
+
+    if (0 < diff) {
+      recent = 0;
+      out[i] = xa;
+    } else if (diff < 0) {
+      recent = 1;
+      out[i] = xb;
+    } else {
+      out[i] = recent ? xb : xa;
+    }
+
+    prevB = xb;
+  }
+
+  this._prevA = xa;
+  this._prevB = prevB;
+  this._recent = recent;
+};
+
+SCUnitRepository.registerSCUnitClass("MostChange", SCUnitMostChange);
+
+module.exports = SCUnitMostChange;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],136:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9332,7 +13551,7 @@ dspProcess["next"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("MouseButton", SCUnitMouseButton);
 module.exports = SCUnitMouseButton;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],102:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],137:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9399,7 +13618,7 @@ dspProcess["next"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("MouseX", SCUnitMouseX);
 module.exports = SCUnitMouseX;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],103:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],138:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9466,7 +13685,7 @@ dspProcess["next"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("MouseY", SCUnitMouseY);
 module.exports = SCUnitMouseY;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],104:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],139:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9496,18 +13715,17 @@ var SCUnitMulAdd = function (_SCUnit) {
     key: "initialize",
     value: function initialize(rate) {
       this._slopeFactor = rate.slopeFactor;
+
       if (this.calcRate === C.RATE_DEMAND) {
         this.dspProcess = dspProcess["d"];
       } else {
-        this.dspProcess = dspProcess[$r2k(this.inputSpecs)];
+        this.dspProcess = dspProcess[$r2k(this)];
+
         this._in = this.inputs[0][0];
         this._mul = this.inputs[1][0];
         this._add = this.inputs[2][0];
-        if (this.dspProcess) {
-          this.dspProcess(1);
-        } else {
-          this.outputs[0][0] = this._in * this._mul + this._add;
-        }
+
+        this.outputs[0][0] = this._in * this._mul + this._add;
       }
     }
   }]);
@@ -9515,157 +13733,165 @@ var SCUnitMulAdd = function (_SCUnit) {
   return SCUnitMulAdd;
 }(SCUnit);
 
-function $r2k(inputSpecs) {
-  return inputSpecs.map(function (x) {
-    return x.rate === C.RATE_AUDIO ? "a" : x.rate === C.RATE_SCALAR ? "i" : "k";
+function $r2k(unit) {
+  return unit.inputSpecs.map(function (_ref) {
+    var rate = _ref.rate;
+
+    if (rate === C.RATE_AUDIO) {
+      return "a";
+    }
+    return rate === C.RATE_SCALAR ? "i" : "k";
   }).join("");
 }
+
 dspProcess["aaa"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var mulIn = this.inputs[1];
   var addIn = this.inputs[2];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn[i] * mulIn[i] + addIn[i];
   }
 };
+
 dspProcess["aak"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var mulIn = this.inputs[1];
   var add = this._add;
-  var nextAdd = this.inputs[2][0];
-  var addSlope = (nextAdd - add) * this._slopeFactor;
+  var next_add = this.inputs[2][0];
+  var add_slope = (next_add - add) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn[i] * mulIn[i] + (add + addSlope * i);
+    out[i] = inIn[i] * mulIn[i] + (add + add_slope * i);
   }
-  this._add = nextAdd;
+
+  this._add = next_add;
 };
+
 dspProcess["aai"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var mulIn = this.inputs[1];
   var add = this._add;
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn[i] * mulIn[i] + add;
   }
 };
+
 dspProcess["aka"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var mul = this._mul;
   var addIn = this.inputs[2];
-  var nextMul = this.inputs[1][0];
-  var mulSlope = (nextMul - mul) * this._slopeFactor;
+  var next_mul = this.inputs[1][0];
+  var mul_slope = (next_mul - mul) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn[i] * (mul + mulSlope * i) + addIn[i];
+    out[i] = inIn[i] * (mul + mul_slope * i) + addIn[i];
   }
-  this._mul = nextMul;
+
+  this._mul = next_mul;
 };
+
 dspProcess["akk"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var mul = this._mul;
   var add = this._add;
-  var nextMul = this.inputs[1][0];
-  var mulSlope = (nextMul - mul) * this._slopeFactor;
-  var nextAdd = this.inputs[2][0];
-  var addSlope = (nextAdd - add) * this._slopeFactor;
+  var next_mul = this.inputs[1][0];
+  var mul_slope = (next_mul - mul) * this._slopeFactor;
+  var next_add = this.inputs[2][0];
+  var add_slope = (next_add - add) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn[i] * (mul + mulSlope * i) + (add + addSlope * i);
+    out[i] = inIn[i] * (mul + mul_slope * i) + (add + add_slope * i);
   }
-  this._mul = nextMul;
-  this._add = nextAdd;
+
+  this._mul = next_mul;
+  this._add = next_add;
 };
+
 dspProcess["aki"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var mul = this._mul;
   var add = this._add;
-  var nextMul = this.inputs[1][0];
-  var mulSlope = (nextMul - mul) * this._slopeFactor;
+  var next_mul = this.inputs[1][0];
+  var mul_slope = (next_mul - mul) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn[i] * (mul + mulSlope * i) + add;
+    out[i] = inIn[i] * (mul + mul_slope * i) + add;
   }
-  this._mul = nextMul;
+
+  this._mul = next_mul;
 };
+
 dspProcess["aia"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var mul = this._mul;
   var addIn = this.inputs[2];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn[i] * mul + addIn[i];
   }
 };
+
 dspProcess["aik"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var mul = this._mul;
   var add = this._add;
-  var nextAdd = this.inputs[2][0];
-  var addSlope = (nextAdd - add) * this._slopeFactor;
+  var next_add = this.inputs[2][0];
+  var add_slope = (next_add - add) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn[i] * mul + (add + addSlope * i);
+    out[i] = inIn[i] * mul + (add + add_slope * i);
   }
-  this._add = nextAdd;
+
+  this._add = next_add;
 };
+
 dspProcess["aii"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var mul = this._mul;
   var add = this._add;
-  var nextMul = this.inputs[1][0];
-  var mulSlope = (nextMul - mul) * this._slopeFactor;
+  var next_mul = this.inputs[1][0];
+  var mul_slope = (next_mul - mul) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn[i] * (mul + mulSlope * i) + add;
+    out[i] = inIn[i] * (mul + mul_slope * i) + add;
   }
-  this._mul = nextMul;
+
+  this._mul = next_mul;
 };
-dspProcess["kka"] = function (inNumSamples) {
-  var out = this.outputs[0];
-  var _in = this._in;
-  var mul = this._mul;
-  var addIn = this.inputs[2];
-  var nextIn = this.inputs[0][0];
-  var inSlope = (nextIn - _in) * this._slopeFactor;
-  var nextMul = this.inputs[1][0];
-  var mulSlope = (nextMul - mul) * this._slopeFactor;
-  for (var i = 0; i < inNumSamples; i++) {
-    out[i] = (_in + inSlope * i) * (mul + mulSlope * i) + addIn[i];
-  }
-  this._in = nextIn;
-  this._mul = nextMul;
-};
+
 dspProcess["kkk"] = function () {
   this.outputs[0][0] = this.inputs[0][0] * this.inputs[1][0] + this.inputs[2][0];
 };
+
 dspProcess["kki"] = function () {
   this.outputs[0][0] = this.inputs[0][0] * this.inputs[1][0] + this._add;
 };
-dspProcess["kia"] = function (inNumSamples) {
-  var out = this.outputs[0];
-  var _in = this._in;
-  var mul = this._mul;
-  var addIn = this.inputs[2];
-  var nextIn = this.inputs[0][0];
-  var inSlope = (nextIn - _in) * this._slopeFactor;
-  for (var i = 0; i < inNumSamples; i++) {
-    out[i] = (_in + inSlope * i) * mul + addIn[i];
-  }
-  this._in = nextIn;
-};
+
 dspProcess["kik"] = function () {
   this.outputs[0][0] = this.inputs[0][0] * this._mul + this.inputs[2][0];
 };
+
 dspProcess["kii"] = function () {
   this.outputs[0][0] = this.inputs[0][0] * this._mul + this._add;
 };
+
 dspProcess["d"] = function (inNumSamples) {
   if (inNumSamples) {
     var a = demand.next(this, 0, inNumSamples);
     var b = demand.next(this, 1, inNumSamples);
     var c = demand.next(this, 2, inNumSamples);
+
     this.outputs[0][0] = isNaN(a) || isNaN(b) || isNaN(c) ? NaN : a * b + c;
   } else {
     demand.reset(this, 0);
@@ -9675,7 +13901,7 @@ dspProcess["d"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("MulAdd", SCUnitMulAdd);
 module.exports = SCUnitMulAdd;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":168}],105:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],140:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9719,7 +13945,129 @@ var SCUnitNRand = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("NRand", SCUnitNRand);
 module.exports = SCUnitNRand;
-},{"../SCUnit":12,"../SCUnitRepository":13}],106:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],141:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var SCUnitNormalizer = function (_SCUnit) {
+  _inherits(SCUnitNormalizer, _SCUnit);
+
+  function SCUnitNormalizer() {
+    _classCallCheck(this, SCUnitNormalizer);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitNormalizer).apply(this, arguments));
+  }
+
+  _createClass(SCUnitNormalizer, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      this.dspProcess = dspProcess["aki"];
+
+      var dur = Math.max(rate.bufferDuration, this.inputs[2][0]);
+      var bufSize = Math.ceil(dur * rate.sampleRate);
+
+      this._bufSize = bufSize;
+      this._pos = 0;
+      this._flips = 0;
+      this._level = 1;
+      this._level_slope = 0;
+      this._prevmaxval = 0;
+      this._curmaxval = 0;
+      this._slopeFactor = 1 / bufSize;
+      this._xinbuf = new Float32Array(bufSize);
+      this._xmidbuf = new Float32Array(bufSize);
+      this._xoutbuf = new Float32Array(bufSize);
+    }
+  }]);
+
+  return SCUnitNormalizer;
+}(SCUnit);
+
+dspProcess["aki"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var amp = this.inputs[1][0];
+  var bufSize = this._bufSize;
+  var level = this._level;
+
+  var pos = this._pos;
+  var next_level = this._level;
+  var level_slope = this._level_slope;
+  var curmaxval = this._curmaxval;
+
+  var bufRemain = bufSize - pos;
+  var remain = inNumSamples;
+  var val = void 0,
+      j = 0;
+
+  while (remain) {
+    var nsmps = Math.min(remain, bufRemain);
+    var xinbuf = this._xinbuf;
+    var xoutbuf = this._xoutbuf;
+
+    if (2 <= this._flips) {
+      for (var i = 0; i < nsmps; i++) {
+        var x = (level + level_slope * i) * xoutbuf[pos + j];
+        xinbuf[pos + j] = val = inIn[j];
+        out[j++] = x;
+        curmaxval = Math.max(curmaxval, Math.abs(val));
+      }
+    } else {
+      for (var _i = 0; _i < nsmps; _i++) {
+        xinbuf[pos + j] = val = inIn[j];
+        out[j++] = 0;
+        curmaxval = Math.max(curmaxval, Math.abs(val));
+      }
+    }
+
+    pos += nsmps;
+
+    if (bufSize <= pos) {
+      pos = 0;
+      bufRemain = bufSize;
+
+      var maxval2 = Math.max(this._prevmaxval, curmaxval, 0.00001);
+
+      this._prevmaxval = curmaxval;
+      this._curmaxval = curmaxval = 0;
+
+      next_level = amp / maxval2;
+      level_slope = (next_level - level) * this._slopeFactor;
+
+      var _ref = [this._xmidbuf, this._xinbuf, this._xoutbuf];
+      this._xoutbuf = _ref[0];
+      this._xmidbuf = _ref[1];
+      this._xinbuf = _ref[2];
+
+
+      this._flips += 1;
+    }
+
+    remain -= nsmps;
+  }
+
+  this._pos = pos;
+  this._level = next_level;
+  this._level_slope = level_slope;
+  this._curmaxval = curmaxval;
+};
+
+SCUnitRepository.registerSCUnitClass("Normalizer", SCUnitNormalizer);
+
+module.exports = SCUnitNormalizer;
+},{"../SCUnit":12,"../SCUnitRepository":13}],142:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9754,7 +14102,7 @@ var SCUnitNumAudioBuses = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("NumAudioBuses", SCUnitNumAudioBuses);
 module.exports = SCUnitNumAudioBuses;
-},{"../SCUnit":12,"../SCUnitRepository":13}],107:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],143:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9789,7 +14137,7 @@ var SCUnitNumControlBuses = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("NumControlBuses", SCUnitNumControlBuses);
 module.exports = SCUnitNumControlBuses;
-},{"../SCUnit":12,"../SCUnitRepository":13}],108:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],144:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9824,7 +14172,7 @@ var SCUnitNumInputBuses = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("NumInputBuses", SCUnitNumInputBuses);
 module.exports = SCUnitNumInputBuses;
-},{"../SCUnit":12,"../SCUnitRepository":13}],109:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],145:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9859,7 +14207,82 @@ var SCUnitNumOutputBuses = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("NumOutputBuses", SCUnitNumOutputBuses);
 module.exports = SCUnitNumOutputBuses;
-},{"../SCUnit":12,"../SCUnitRepository":13}],110:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],146:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+// TODO: use the sample offset ??
+// Now, SCUnitOffsetOut == SCUnitOut
+
+var SCUnitOffsetOut = function (_SCUnit) {
+  _inherits(SCUnitOffsetOut, _SCUnit);
+
+  function SCUnitOffsetOut() {
+    _classCallCheck(this, SCUnitOffsetOut);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitOffsetOut).apply(this, arguments));
+  }
+
+  _createClass(SCUnitOffsetOut, [{
+    key: "initialize",
+    value: function initialize() {
+      if (this.calcRate === C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["a"];
+        this._buses = this.context.audioBuses;
+      } else {
+        this.dspProcess = dspProcess["k"];
+        this._buses = this.context.controlBuses;
+      }
+    }
+  }]);
+
+  return SCUnitOffsetOut;
+}(SCUnit);
+
+dspProcess["a"] = function (inNumSamples) {
+  var inputs = this.inputs;
+  var buses = this._buses;
+  var firstBusChannel = inputs[0][0] | 0;
+
+  for (var ch = 0, chmax = inputs.length - 1; ch < chmax; ch++) {
+    var out = buses[firstBusChannel + ch];
+    var inIn = inputs[ch + 1];
+
+    for (var i = 0; i < inNumSamples; i++) {
+      out[i] += inIn[i];
+    }
+  }
+};
+
+dspProcess["k"] = function () {
+  var inputs = this.inputs;
+  var buses = this._buses;
+  var firstBusChannel = inputs[0][0] | 0;
+
+  for (var ch = 0, chmax = inputs.length - 1; ch < chmax; ch++) {
+    var out = buses[firstBusChannel + ch];
+    var _in = inputs[ch + 1][0];
+
+    out[0] += _in;
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("OffsetOut", SCUnitOffsetOut);
+
+module.exports = SCUnitOffsetOut;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],147:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -9939,7 +14362,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("OnePole", SCUnitOnePole);
 module.exports = SCUnitOnePole;
-},{"../SCUnit":12,"../SCUnitRepository":13}],111:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],148:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10024,7 +14447,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("OneZero", SCUnitOneZero);
 module.exports = SCUnitOneZero;
-},{"../SCUnit":12,"../SCUnitRepository":13}],112:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],149:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10053,9 +14476,6 @@ var SCUnitOut = function (_SCUnit) {
     key: "initialize",
     value: function initialize() {
       if (this.calcRate === C.RATE_AUDIO) {
-        // assert(
-        //   this.inputSpecs.slice(1).every(spec => spec.rate === C.RATE_AUDIO)
-        // );
         this.dspProcess = dspProcess["a"];
         this._buses = this.context.audioBuses;
       } else {
@@ -10071,14 +14491,14 @@ var SCUnitOut = function (_SCUnit) {
 dspProcess["a"] = function (inNumSamples) {
   var inputs = this.inputs;
   var buses = this._buses;
-  var firstBusChannel = (inputs[0][0] | 0) - 1;
+  var firstBusChannel = inputs[0][0] | 0;
 
-  for (var i = 1, imax = inputs.length; i < imax; i++) {
-    var bus = buses[firstBusChannel + i];
-    var _in = inputs[i];
+  for (var ch = 0, chmax = inputs.length - 1; ch < chmax; ch++) {
+    var out = buses[firstBusChannel + ch];
+    var inIn = inputs[ch + 1];
 
-    for (var j = 0; j < inNumSamples; j++) {
-      bus[j] += _in[j];
+    for (var i = 0; i < inNumSamples; i++) {
+      out[i] += inIn[i];
     }
   }
 };
@@ -10086,17 +14506,20 @@ dspProcess["a"] = function (inNumSamples) {
 dspProcess["k"] = function () {
   var inputs = this.inputs;
   var buses = this._buses;
-  var offset = (inputs[0][0] | 0) - 1;
+  var firstBusChannel = inputs[0][0] | 0;
 
-  for (var i = 1, imax = inputs.length; i < imax; i++) {
-    buses[offset + i][0] += inputs[i][0];
+  for (var ch = 0, chmax = inputs.length - 1; ch < chmax; ch++) {
+    var out = buses[firstBusChannel + ch];
+    var _in = inputs[ch + 1][0];
+
+    out[0] += _in;
   }
 };
 
 SCUnitRepository.registerSCUnitClass("Out", SCUnitOut);
 
 module.exports = SCUnitOut;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],113:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],150:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10110,9 +14533,11 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
-var dspProcess = {};
+var clamp = require("../util/clamp");
 var sine = require("./_sine");
+
 var gSine = sine.gSine;
+var dspProcess = {};
 
 var SCUnitPan2 = function (_SCUnit) {
   _inherits(SCUnitPan2, _SCUnit);
@@ -10126,18 +14551,25 @@ var SCUnitPan2 = function (_SCUnit) {
   _createClass(SCUnitPan2, [{
     key: "initialize",
     value: function initialize(rate) {
+
       if (this.inputSpecs[1].rate === C.RATE_AUDIO) {
-        this.dspProcess = dspProcess["next_a"];
+        this.dspProcess = dspProcess["aak"];
       } else {
-        this.dspProcess = dspProcess["next_k"];
+        this.dspProcess = dspProcess["akk"];
       }
+
+      var ipos = void 0;
+
       this._slopeFactor = rate.slopeFactor;
       this._pos = this.inputs[1][0];
       this._level = this.inputs[2][0];
-      var ipos = 1024 * this._pos + 1024 + 0.5 | 0;
-      ipos = Math.max(0, Math.min(ipos, 2048));
+
+      ipos = 1024 * this._pos + 1024 + 0.5 | 0;
+      ipos = clamp(ipos, 0, 2048);
+
       this._leftAmp = this._level * gSine[2048 - ipos];
       this._rightAmp = this._level * gSine[ipos];
+
       this.dspProcess(1);
     }
   }]);
@@ -10145,76 +14577,83 @@ var SCUnitPan2 = function (_SCUnit) {
   return SCUnitPan2;
 }(SCUnit);
 
-dspProcess["next_a"] = function (inNumSamples) {
+dspProcess["aak"] = function (inNumSamples) {
   var leftOut = this.outputs[0];
   var rightOut = this.outputs[1];
   var inIn = this.inputs[0];
   var posIn = this.inputs[1];
-  var nextLevel = this.inputs[2][0];
   var level = this._level;
+  var next_level = this.inputs[2][0];
+
   var ipos = void 0;
-  if (level !== nextLevel) {
-    var level_slope = (nextLevel - level) * this._slopeFactor;
+
+  if (level !== next_level) {
+    var level_slope = (next_level - level) * this._slopeFactor;
+
     for (var i = 0; i < inNumSamples; i++) {
-      var _in = inIn[i];
       ipos = 1024 * posIn[i] + 1024 + 0.5 | 0;
-      ipos = Math.max(0, Math.min(ipos, 2048));
+      ipos = clamp(ipos, 0, 2048);
+
       var amp = level + level_slope * i;
       var leftAmp = amp * gSine[2048 - ipos];
       var rightAmp = amp * gSine[ipos];
-      leftOut[i] = _in * leftAmp;
-      rightOut[i] = _in * rightAmp;
+
+      leftOut[i] = inIn[i] * leftAmp;
+      rightOut[i] = inIn[i] * rightAmp;
     }
-    this._level = nextLevel;
+
+    this._level = next_level;
   } else {
-    var _amp = level;
     for (var _i = 0; _i < inNumSamples; _i++) {
-      var _in2 = inIn[_i];
       ipos = 1024 * posIn[_i] + 1024 + 0.5 | 0;
-      ipos = Math.max(0, Math.min(ipos, 2048));
-      var _leftAmp = _amp * gSine[2048 - ipos];
-      var _rightAmp = _amp * gSine[ipos];
-      leftOut[_i] = _in2 * _leftAmp;
-      rightOut[_i] = _in2 * _rightAmp;
+      ipos = clamp(ipos, 0, 2048);
+      leftOut[_i] = inIn[_i] * level * gSine[2048 - ipos];
+      rightOut[_i] = inIn[_i] * level * gSine[ipos];
     }
   }
 };
-dspProcess["next_k"] = function (inNumSamples) {
+
+dspProcess["akk"] = function (inNumSamples) {
   var leftOut = this.outputs[0];
   var rightOut = this.outputs[1];
   var inIn = this.inputs[0];
-  var nextPos = this.inputs[1][0];
-  var nextLevel = this.inputs[2][0];
+  var next_pos = this.inputs[1][0];
+  var next_level = this.inputs[2][0];
   var leftAmp = this._leftAmp;
   var rightAmp = this._rightAmp;
+
   var ipos = void 0;
-  if (this._pos !== nextPos || this._level !== nextLevel) {
-    ipos = 1024 * nextPos + 1024 + 0.5 | 0;
-    ipos = Math.max(0, Math.min(ipos, 2048));
-    var nextLeftAmp = nextLevel * gSine[2048 - ipos];
-    var nextRightAmp = nextLevel * gSine[ipos];
-    var leftAmp_slope = (nextLeftAmp - leftAmp) * this._slopeFactor;
-    var rightAmp_slope = (nextRightAmp - rightAmp) * this._slopeFactor;
+
+  if (this._pos !== next_pos || this._level !== next_level) {
+    ipos = 1024 * next_pos + 1024 + 0.5 | 0;
+    ipos = clamp(ipos, 0, 2048);
+
+    var next_leftAmp = next_level * gSine[2048 - ipos];
+    var next_rightAmp = next_level * gSine[ipos];
+    var leftAmp_slope = (next_leftAmp - leftAmp) * this._slopeFactor;
+    var rightAmp_slope = (next_rightAmp - rightAmp) * this._slopeFactor;
+
     for (var i = 0; i < inNumSamples; i++) {
-      var _in = inIn[i];
-      leftOut[i] = _in * (leftAmp + leftAmp_slope * i);
-      rightOut[i] = _in * (rightAmp + rightAmp_slope * i);
+      leftOut[i] = inIn[i] * (leftAmp + leftAmp_slope * i);
+      rightOut[i] = inIn[i] * (rightAmp + rightAmp_slope * i);
     }
-    this._pos = nextPos;
-    this._level = nextLevel;
-    this._leftAmp = nextLeftAmp;
-    this._rightAmp = nextRightAmp;
+
+    this._pos = next_pos;
+    this._level = next_level;
+    this._leftAmp = next_leftAmp;
+    this._rightAmp = next_rightAmp;
   } else {
     for (var _i2 = 0; _i2 < inNumSamples; _i2++) {
-      var _in3 = inIn[_i2];
-      leftOut[_i2] = _in3 * leftAmp;
-      rightOut[_i2] = _in3 * rightAmp;
+      leftOut[_i2] = inIn[_i2] * leftAmp;
+      rightOut[_i2] = inIn[_i2] * rightAmp;
     }
   }
 };
+
 SCUnitRepository.registerSCUnitClass("Pan2", SCUnitPan2);
+
 module.exports = SCUnitPan2;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_sine":169}],114:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/clamp":213,"./_sine":211}],151:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10299,7 +14738,7 @@ dspProcess["i"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Peak", SCUnitPeak);
 module.exports = SCUnitPeak;
-},{"../SCUnit":12,"../SCUnitRepository":13}],115:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],152:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10368,7 +14807,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("PeakFollower", SCUnitPeakFollower);
 module.exports = SCUnitPeakFollower;
-},{"../SCUnit":12,"../SCUnitRepository":13}],116:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],153:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10430,7 +14869,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Phasor", SCUnitPhasor);
 module.exports = SCUnitPhasor;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_wrap":177}],117:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_wrap":221}],154:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10495,7 +14934,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("PinkNoise", SCUnitPinkNoise);
 module.exports = SCUnitPinkNoise;
-},{"../SCUnit":12,"../SCUnitRepository":13}],118:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],155:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10783,7 +15222,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Pulse", SCUnitPulse);
 module.exports = SCUnitPulse;
-},{"../SCUnit":12,"../SCUnitRepository":13,"./_sine":169}],119:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"./_sine":211}],156:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10885,7 +15324,7 @@ dspProcess["i"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("PulseCount", SCUnitPulseCount);
 module.exports = SCUnitPulseCount;
-},{"../SCUnit":12,"../SCUnitRepository":13}],120:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],157:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -10951,7 +15390,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("PulseDivider", SCUnitPulseDivider);
 module.exports = SCUnitPulseDivider;
-},{"../SCUnit":12,"../SCUnitRepository":13}],121:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],158:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11041,7 +15480,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("RHPF", SCUnitRHPF);
 module.exports = SCUnitRHPF;
-},{"../SCUnit":12,"../SCUnitRepository":13}],122:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],159:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11131,7 +15570,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("RLPF", SCUnitRLPF);
 module.exports = SCUnitRLPF;
-},{"../SCUnit":12,"../SCUnitRepository":13}],123:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],160:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11166,7 +15605,7 @@ var SCUnitRadiansPerSample = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("RadiansPerSample", SCUnitRadiansPerSample);
 module.exports = SCUnitRadiansPerSample;
-},{"../SCUnit":12,"../SCUnitRepository":13}],124:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],161:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11252,7 +15691,7 @@ dspProcess["1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("Ramp", SCUnitRamp);
 module.exports = SCUnitRamp;
-},{"../SCUnit":12,"../SCUnitRepository":13}],125:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],162:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11290,7 +15729,7 @@ var SCUnitRand = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("Rand", SCUnitRand);
 module.exports = SCUnitRand;
-},{"../SCUnit":12,"../SCUnitRepository":13}],126:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],163:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11331,27 +15770,36 @@ var SCUnitReplaceOut = function (_SCUnit) {
   return SCUnitReplaceOut;
 }(SCUnit);
 
-dspProcess["a"] = function (inNumSamples) {
+dspProcess["a"] = function () {
   var inputs = this.inputs;
   var buses = this._buses;
-  var firstBusChannel = (inputs[0][0] | 0) - 1;
-  for (var i = 1, imax = inputs.length; i < imax; i++) {
-    var bus = buses[firstBusChannel + i];
-    var _in = inputs[i];
-    bus.set(_in.subarray(0, inNumSamples));
+  var firstBusChannel = inputs[0][0] | 0;
+
+  for (var ch = 0, chmax = inputs.length - 1; ch < chmax; ch++) {
+    var out = buses[firstBusChannel + ch];
+    var inIn = inputs[ch + 1];
+
+    out.set(inIn);
   }
 };
+
 dspProcess["k"] = function () {
   var inputs = this.inputs;
   var buses = this._buses;
-  var offset = (inputs[0][0] | 0) - 1;
-  for (var i = 1, imax = inputs.length; i < imax; i++) {
-    buses[offset + i][0] = inputs[i][0];
+  var firstBusChannel = inputs[0][0] | 0;
+
+  for (var ch = 0, chmax = inputs.length - 1; ch < chmax; ch++) {
+    var out = buses[firstBusChannel + ch];
+    var _in = inputs[ch + 1][0];
+
+    out[0] = _in;
   }
 };
+
 SCUnitRepository.registerSCUnitClass("ReplaceOut", SCUnitReplaceOut);
+
 module.exports = SCUnitReplaceOut;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],127:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],164:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11442,7 +15890,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Resonz", SCUnitResonz);
 module.exports = SCUnitResonz;
-},{"../SCUnit":12,"../SCUnitRepository":13}],128:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],165:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11530,7 +15978,102 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Ringz", SCUnitRingz);
 module.exports = SCUnitRingz;
-},{"../SCUnit":12,"../SCUnitRepository":13}],129:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],166:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var sine = require("./_sine");
+
+var gSine = sine.gSine;
+var kSineSize = sine.kSineSize;
+var kSineSize2 = kSineSize >> 1;
+var kSineSize4 = kSineSize >> 2;
+var kSineMask = sine.kSineMask;
+var dspProcess = {};
+
+var SCUnitRotate2 = function (_SCUnit) {
+  _inherits(SCUnitRotate2, _SCUnit);
+
+  function SCUnitRotate2() {
+    _classCallCheck(this, SCUnitRotate2);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitRotate2).apply(this, arguments));
+  }
+
+  _createClass(SCUnitRotate2, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      this.dspProcess = dspProcess["aak"];
+
+      this._slopeFactor = rate.slopeFactor;
+      this._pos = this.inputs[2][0];
+
+      var isinpos = kSineMask & Math.floor(kSineSize2 * this._pos);
+      var icospos = kSineMask & kSineSize4 + isinpos;
+
+      this._sint = gSine[isinpos];
+      this._cost = gSine[icospos];
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitRotate2;
+}(SCUnit);
+
+dspProcess["aak"] = function (inNumSamples) {
+  var outX = this.outputs[0];
+  var outY = this.outputs[1];
+  var inInX = this.inputs[0];
+  var inInY = this.inputs[1];
+  var next_pos = this.inputs[2][0];
+  var sint = this._sint;
+  var cost = this._cost;
+
+  if (this._pos !== next_pos) {
+    var isinpos = kSineMask & Math.floor(kSineSize2 * next_pos);
+    var icospos = kSineMask & kSineSize4 + isinpos;
+    var next_sint = gSine[isinpos];
+    var next_cost = gSine[icospos];
+    var sint_slope = (next_sint - sint) * this._slopeFactor;
+    var cost_slope = (next_cost - cost) * this._slopeFactor;
+
+    for (var i = 0; i < inNumSamples; i++) {
+      var x = inInX[i];
+      var y = inInY[i];
+
+      outX[i] = (cost + cost_slope * i) * x + (sint + sint_slope * i) * y;
+      outY[i] = (cost + cost_slope * i) * x - (sint + sint_slope * i) * y;
+    }
+
+    this._pos = next_pos;
+    this._sint = next_sint;
+    this._cost = next_cost;
+  } else {
+    for (var _i = 0; _i < inNumSamples; _i++) {
+      var _x = inInX[_i];
+      var _y = inInY[_i];
+
+      outX[_i] = cost * _x + sint * _y;
+      outY[_i] = cost * _x - sint * _y;
+    }
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("Rotate2", SCUnitRotate2);
+
+module.exports = SCUnitRotate2;
+},{"../SCUnit":12,"../SCUnitRepository":13,"./_sine":211}],167:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11624,7 +16167,7 @@ dspProcess["i"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("RunningMax", SCUnitRunningMax);
 module.exports = SCUnitRunningMax;
-},{"../SCUnit":12,"../SCUnitRepository":13}],130:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],168:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11718,7 +16261,7 @@ dspProcess["i"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("RunningMin", SCUnitRunningMin);
 module.exports = SCUnitRunningMin;
-},{"../SCUnit":12,"../SCUnitRepository":13}],131:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],169:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11862,7 +16405,7 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("SOS", SCUnitSOS);
 module.exports = SCUnitSOS;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],132:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],170:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11897,7 +16440,7 @@ var SCUnitSampleDur = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("SampleDur", SCUnitSampleDur);
 module.exports = SCUnitSampleDur;
-},{"../SCUnit":12,"../SCUnitRepository":13}],133:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],171:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -11932,7 +16475,7 @@ var SCUnitSampleRate = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("SampleRate", SCUnitSampleRate);
 module.exports = SCUnitSampleRate;
-},{"../SCUnit":12,"../SCUnitRepository":13}],134:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],172:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12124,7 +16667,75 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Saw", SCUnitSaw);
 module.exports = SCUnitSaw;
-},{"../SCUnit":12,"../SCUnitRepository":13,"./_sine":169}],135:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"./_sine":211}],173:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var SCUnitSchmidt = function (_SCUnit) {
+  _inherits(SCUnitSchmidt, _SCUnit);
+
+  function SCUnitSchmidt() {
+    _classCallCheck(this, SCUnitSchmidt);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitSchmidt).apply(this, arguments));
+  }
+
+  _createClass(SCUnitSchmidt, [{
+    key: "initialize",
+    value: function initialize() {
+
+      this.dspProcess = dspProcess["akk"];
+
+      this._level = 0;
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitSchmidt;
+}(SCUnit);
+
+dspProcess["akk"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var inIn = this.inputs[0];
+  var lo = this.inputs[1][0];
+  var hi = this.inputs[2][0];
+
+  var level = this._level;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var zin = inIn[i];
+
+    if (level === 1) {
+      if (zin < lo) {
+        level = 0;
+      }
+    } else {
+      if (hi < zin) {
+        level = 1;
+      }
+    }
+    out[i] = level;
+  }
+
+  this._level = level;
+};
+
+SCUnitRepository.registerSCUnitClass("Schmidt", SCUnitSchmidt);
+
+module.exports = SCUnitSchmidt;
+},{"../SCUnit":12,"../SCUnitRepository":13}],174:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12187,7 +16798,7 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("Select", SCUnitSelect);
 module.exports = SCUnitSelect;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],136:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],175:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12286,7 +16897,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("SetResetFF", SCUnitSetResetFF);
 module.exports = SCUnitSetResetFF;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],137:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],176:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12465,7 +17076,7 @@ dspProcess["ik"] = dspProcess["kk"];
 dspProcess["ii"] = dspProcess["kk"];
 SCUnitRepository.registerSCUnitClass("SinOsc", SCUnitSinOsc);
 module.exports = SCUnitSinOsc;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_sine":169}],138:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_sine":211}],177:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12551,7 +17162,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("SinOscFB", SCUnitSinOscFB);
 module.exports = SCUnitSinOscFB;
-},{"../SCUnit":12,"../SCUnitRepository":13,"./_sine":169}],139:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"./_sine":211}],178:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12603,7 +17214,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Slew", SCUnitSlew);
 module.exports = SCUnitSlew;
-},{"../SCUnit":12,"../SCUnitRepository":13}],140:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],179:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12654,7 +17265,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Slope", SCUnitSlope);
 module.exports = SCUnitSlope;
-},{"../SCUnit":12,"../SCUnitRepository":13}],141:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],180:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12768,7 +17379,7 @@ dspProcess["0"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Stepper", SCUnitStepper);
 module.exports = SCUnitStepper;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_wrap":177}],142:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_wrap":221}],181:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12803,7 +17414,7 @@ var SCUnitSubsampleOffset = function (_SCUnit) {
 
 SCUnitRepository.registerSCUnitClass("SubsampleOffset", SCUnitSubsampleOffset);
 module.exports = SCUnitSubsampleOffset;
-},{"../SCUnit":12,"../SCUnitRepository":13}],143:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],182:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12833,18 +17444,17 @@ var SCUnitSum3 = function (_SCUnit) {
     key: "initialize",
     value: function initialize(rate) {
       this._slopeFactor = rate.slopeFactor;
+
       if (this.calcRate === C.RATE_DEMAND) {
         this.dspProcess = dspProcess["d"];
       } else {
-        this.dspProcess = dspProcess[$r2k(this.inputSpecs)] || null;
+        this.dspProcess = dspProcess[$r2k(this)];
+
         this._in0 = this.inputs[0][0];
         this._in1 = this.inputs[1][0];
         this._in2 = this.inputs[2][0];
-        if (this.dspProcess) {
-          this.dspProcess(1);
-        } else {
-          this.outputs[0][0] = this._in0 + this._in1 + this._in2;
-        }
+
+        this.outputs[0][0] = this._in0 + this._in1 + this._in2;
       }
     }
   }]);
@@ -12852,72 +17462,95 @@ var SCUnitSum3 = function (_SCUnit) {
   return SCUnitSum3;
 }(SCUnit);
 
-function $r2k(inputSpecs) {
-  return inputSpecs.map(function (x) {
-    return x.rate === C.RATE_AUDIO ? "a" : x.rate === C.RATE_SCALAR ? "i" : "k";
+function $r2k(unit) {
+  return unit.inputSpecs.map(function (_ref) {
+    var rate = _ref.rate;
+
+    if (rate === C.RATE_AUDIO) {
+      return "a";
+    }
+    return rate === C.RATE_SCALAR ? "i" : "k";
   }).join("");
 }
+
 dspProcess["aaa"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var inIn1 = this.inputs[1];
   var inIn2 = this.inputs[2];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn0[i] + inIn1[i] + inIn2[i];
   }
 };
+
 dspProcess["aak"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var inIn1 = this.inputs[1];
   var in2 = this._in2;
-  var nextIn2 = this.inputs[2][0];
-  var in2Slope = (nextIn2 - in2) * this._slopeFactor;
+  var next_in2 = this.inputs[2][0];
+  var in2_slope = (next_in2 - in2) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn0[i] + inIn1[i] + (in2 + in2Slope * i);
+    out[i] = inIn0[i] + inIn1[i] + (in2 + in2_slope * i);
   }
-  this._in2 = nextIn2;
+
+  this._in2 = next_in2;
 };
+
 dspProcess["aai"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var inIn1 = this.inputs[1];
   var in2 = this._in2;
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn0[i] + inIn1[i] + in2;
   }
 };
+
 dspProcess["akk"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var in12 = this._in1 + this._in2;
-  var nextIn12 = this.inputs[1][0] + this.inputs[2][0];
-  var in12Slope = (nextIn12 - in12) * this._slopeFactor;
+  var next_in12 = this.inputs[1][0] + this.inputs[2][0];
+  var in12_slope = (next_in12 - in12) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn0[i] + (in12 + in12Slope * i);
+    out[i] = inIn0[i] + (in12 + in12_slope * i);
   }
+
   this._in1 = this.inputs[1][0];
   this._in2 = this.inputs[2][0];
 };
+
 dspProcess["aki"] = dspProcess["akk"];
+
 dspProcess["aii"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var in12 = this._in1 + this._in2;
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn0[i] + in12;
   }
 };
+
 dspProcess["kkk"] = function () {
   this.outputs[0][0] = this.inputs[0][0] + this.inputs[1][0] + this.inputs[2][0];
 };
+
 dspProcess["kki"] = dspProcess["kkk"];
+
 dspProcess["kii"] = dspProcess["kkk"];
+
 dspProcess["d"] = function (inNumSamples) {
   if (inNumSamples) {
     var a = demand.next(this, 0, inNumSamples);
     var b = demand.next(this, 1, inNumSamples);
     var c = demand.next(this, 2, inNumSamples);
+
     this.outputs[0][0] = isNaN(a) || isNaN(b) || isNaN(c) ? NaN : a + b + c;
   } else {
     demand.reset(this, 0);
@@ -12925,9 +17558,11 @@ dspProcess["d"] = function (inNumSamples) {
     demand.reset(this, 2);
   }
 };
+
 SCUnitRepository.registerSCUnitClass("Sum3", SCUnitSum3);
+
 module.exports = SCUnitSum3;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":168}],144:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],183:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -12957,19 +17592,18 @@ var SCUnitSum4 = function (_SCUnit) {
     key: "initialize",
     value: function initialize(rate) {
       this._slopeFactor = rate.slopeFactor;
+
       if (this.calcRate === C.RATE_DEMAND) {
         this.dspProcess = dspProcess["d"];
       } else {
-        this.dspProcess = dspProcess[$r2k(this.inputSpecs)] || null;
+        this.dspProcess = dspProcess[$r2k(this)];
+
         this._in0 = this.inputs[0][0];
         this._in1 = this.inputs[1][0];
         this._in2 = this.inputs[2][0];
         this._in3 = this.inputs[3][0];
-        if (this.dspProcess) {
-          this.dspProcess(1);
-        } else {
-          this.outputs[0][0] = this._in0 + this._in1 + this._in2 + this._in3;
-        }
+
+        this.outputs[0][0] = this._in0 + this._in1 + this._in2 + this._in3;
       }
     }
   }]);
@@ -12977,102 +17611,133 @@ var SCUnitSum4 = function (_SCUnit) {
   return SCUnitSum4;
 }(SCUnit);
 
-function $r2k(inputSpecs) {
-  return inputSpecs.map(function (x) {
-    return x.rate === C.RATE_AUDIO ? "a" : x.rate === C.RATE_SCALAR ? "i" : "k";
+function $r2k(unit) {
+  return unit.inputSpecs.map(function (_ref) {
+    var rate = _ref.rate;
+
+    if (rate === C.RATE_AUDIO) {
+      return "a";
+    }
+    return rate === C.RATE_SCALAR ? "i" : "k";
   }).join("");
 }
+
 dspProcess["aaaa"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var inIn1 = this.inputs[1];
   var inIn2 = this.inputs[2];
   var inIn3 = this.inputs[3];
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn0[i] + inIn1[i] + inIn2[i] + inIn3[i];
   }
 };
+
 dspProcess["aaak"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var inIn1 = this.inputs[1];
   var inIn2 = this.inputs[2];
   var in3 = this._in3;
-  var nextIn3 = this.inputs[3][0];
-  var in3Slope = (nextIn3 - in3) * this._slopeFactor;
+  var next_in3 = this.inputs[3][0];
+  var in3_slope = (next_in3 - in3) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn0[i] + inIn1[i] + inIn2[i] + (in3 + in3Slope * i);
+    out[i] = inIn0[i] + inIn1[i] + inIn2[i] + (in3 + in3_slope * i);
   }
-  this._in3 = nextIn3;
+
+  this._in3 = next_in3;
 };
+
 dspProcess["aaai"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var inIn1 = this.inputs[1];
   var inIn2 = this.inputs[2];
   var in3 = this._in3;
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn0[i] + inIn1[i] + inIn2[i] + in3;
   }
 };
+
 dspProcess["aakk"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var inIn1 = this.inputs[1];
   var in23 = this._in2 + this._in3;
-  var nextIn23 = this.inputs[2][0] + this.inputs[3][0];
-  var in23Slope = (nextIn23 - in23) * this._slopeFactor;
+  var next_in23 = this.inputs[2][0] + this.inputs[3][0];
+  var in23_slope = (next_in23 - in23) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn0[i] + inIn1[i] + (in23 + in23Slope * i);
+    out[i] = inIn0[i] + inIn1[i] + (in23 + in23_slope * i);
   }
+
   this._in2 = this.inputs[2][0];
-  this._in3 = this.inputs[2][0];
+  this._in3 = this.inputs[3][0];
 };
+
 dspProcess["aaki"] = dspProcess["aakk"];
+
 dspProcess["aaii"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var inIn1 = this.inputs[1];
   var in23 = this._in2 + this._in3;
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn0[i] + inIn1[i] + in23;
   }
 };
+
 dspProcess["akkk"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var in123 = this._in1 + this._in2 + this._in3;
-  var nextIn123 = this.inputs[1][0] + this.inputs[2][0] + this.inputs[3][0];
-  var in123Slope = (nextIn123 - in123) * this._slopeFactor;
+  var next_in123 = this.inputs[1][0] + this.inputs[2][0] + this.inputs[3][0];
+  var in123_slope = (next_in123 - in123) * this._slopeFactor;
+
   for (var i = 0; i < inNumSamples; i++) {
-    out[i] = inIn0[i] + (in123 + in123Slope * i);
+    out[i] = inIn0[i] + (in123 + in123_slope * i);
   }
+
   this._in1 = this.inputs[1][0];
   this._in2 = this.inputs[2][0];
   this._in3 = this.inputs[3][0];
 };
+
 dspProcess["akki"] = dspProcess["akkk"];
+
 dspProcess["akii"] = dspProcess["akkk"];
+
 dspProcess["aiii"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn0 = this.inputs[0];
   var in123 = this._in1 + this._in2 + this._in3;
+
   for (var i = 0; i < inNumSamples; i++) {
     out[i] = inIn0[i] + in123;
   }
 };
+
 dspProcess["kkkk"] = function () {
   this.outputs[0][0] = this.inputs[0][0] + this.inputs[1][0] + this.inputs[2][0] + this.inputs[3][0];
 };
+
 dspProcess["kkki"] = dspProcess["kkkk"];
+
 dspProcess["kkii"] = dspProcess["kkkk"];
+
 dspProcess["kiii"] = dspProcess["kkkk"];
+
 dspProcess["d"] = function (inNumSamples) {
   if (inNumSamples) {
     var a = demand.next(this, 0, inNumSamples);
     var b = demand.next(this, 1, inNumSamples);
     var c = demand.next(this, 2, inNumSamples);
     var d = demand.next(this, 3, inNumSamples);
+
     this.outputs[0][0] = isNaN(a) || isNaN(b) || isNaN(c) || isNaN(d) ? NaN : a + b + c + d;
   } else {
     demand.reset(this, 0);
@@ -13081,9 +17746,11 @@ dspProcess["d"] = function (inNumSamples) {
     demand.reset(this, 3);
   }
 };
+
 SCUnitRepository.registerSCUnitClass("Sum4", SCUnitSum4);
+
 module.exports = SCUnitSum4;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":168}],145:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],184:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13142,7 +17809,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Sweep", SCUnitSweep);
 module.exports = SCUnitSweep;
-},{"../SCUnit":12,"../SCUnitRepository":13}],146:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],185:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13292,7 +17959,7 @@ dspProcess["next_kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("SyncSaw", SCUnitSyncSaw);
 module.exports = SCUnitSyncSaw;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],147:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],186:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13320,7 +17987,10 @@ var SCUnitT2A = function (_SCUnit) {
   _createClass(SCUnitT2A, [{
     key: "initialize",
     value: function initialize() {
-      this.dspProcess = dspProcess["next"];
+      this.dspProcess = dspProcess["ak"];
+
+      this._level = 0;
+
       this.dspProcess(1);
     }
   }]);
@@ -13328,18 +17998,23 @@ var SCUnitT2A = function (_SCUnit) {
   return SCUnitT2A;
 }(SCUnit);
 
-dspProcess["next"] = function () {
+dspProcess["ak"] = function () {
   var out = this.outputs[0];
-  var level = this.input[0][0];
+  var level = this.inputs[0][0];
+
   fill(out, 0);
-  if (this._level <= 0 && level > 0) {
-    this.outputs[0][this.input[1][0] | 0] = level;
+
+  if (this._level <= 0 && 0 < level) {
+    this.outputs[0][this.inputs[1][0] | 0] = level;
   }
+
   this._level = level;
 };
+
 SCUnitRepository.registerSCUnitClass("T2A", SCUnitT2A);
+
 module.exports = SCUnitT2A;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],148:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":214}],187:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13366,28 +18041,189 @@ var SCUnitT2K = function (_SCUnit) {
   _createClass(SCUnitT2K, [{
     key: "initialize",
     value: function initialize() {
-      this.dspProcess = dspProcess["next"];
-      this.outputs[0][0] = this.input[0][0];
+      this.dspProcess = dspProcess["a"];
+      this.outputs[0][0] = this.inputs[0][0];
     }
   }]);
 
   return SCUnitT2K;
 }(SCUnit);
 
-dspProcess["next"] = function () {
-  var inIn = this.input[0];
+dspProcess["a"] = function () {
+  var inIn = this.inputs[0];
+
   var out = 0;
+
   for (var i = 0, imax = inIn.length; i < imax; i++) {
-    var val = inIn[i];
-    if (val > out) {
-      out = val;
-    }
+    out = Math.max(out, inIn[i]);
   }
+
   this.outputs[0][0] = out;
 };
+
 SCUnitRepository.registerSCUnitClass("T2K", SCUnitT2K);
+
 module.exports = SCUnitT2K;
-},{"../SCUnit":12,"../SCUnitRepository":13}],149:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],188:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+var _$r2k;
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var demand = require("./_demand");
+var dspProcess = {};
+var $r2k = (_$r2k = {}, _defineProperty(_$r2k, C.RATE_SCALAR, "di"), _defineProperty(_$r2k, C.RATE_CONTROL, "dk"), _defineProperty(_$r2k, C.RATE_AUDIO, "da"), _defineProperty(_$r2k, C.RATE_DEMAND, "dd"), _$r2k);
+
+var SCUnitTDuty = function (_SCUnit) {
+  _inherits(SCUnitTDuty, _SCUnit);
+
+  function SCUnitTDuty() {
+    _classCallCheck(this, SCUnitTDuty);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitTDuty).apply(this, arguments));
+  }
+
+  _createClass(SCUnitTDuty, [{
+    key: "initialize",
+    value: function initialize(rate) {
+
+      this.dspProcess = dspProcess[$r2k[this.inputSpecs[1].rate]];
+
+      this._sampleRate = rate.sampleRate;
+      this._prevreset = 0;
+      this._count = 0;
+
+      if (this.inputSpecs[1].rate === C.RATE_DEMAND) {
+        this._prevreset = demand.next(this, 1, 1) * this._sampleRate;
+      }
+      if (this.inputs[4][0]) {
+        this._count = demand.next(this, 0, 1) * this._sampleRate;
+      }
+
+      this.outputs[0][0] = 0;
+    }
+  }]);
+
+  return SCUnitTDuty;
+}(SCUnit);
+
+dspProcess["da"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var resetIn = this.inputs[1];
+  var sampleRate = this._sampleRate;
+
+  var count = this._count;
+  var prevreset = this._prevreset;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var zreset = resetIn[i];
+
+    if (0 < zreset && prevreset <= 0) {
+      demand.reset(this, 0);
+      demand.reset(this, 3);
+      count = 0;
+    }
+
+    if (count <= 0) {
+      count += demand.next(this, 0, i + 1) * sampleRate;
+      if (Number.isNaN(count)) {
+        this.doneAction(this.inputs[2][0]);
+      }
+      out[i] = demand.next(this, 3, i + 1) || 0;
+    } else {
+      out[i] = 0;
+    }
+
+    count -= 1;
+    prevreset = zreset;
+  }
+
+  this._count = count;
+  this._prevreset = prevreset;
+};
+
+dspProcess["dk"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var zreset = this.inputs[1][0];
+  var sampleRate = this._sampleRate;
+
+  var count = this._count;
+
+  if (0 < zreset && this._prevreset <= 0) {
+    demand.reset(this, 0);
+    demand.reset(this, 3);
+    count = 0;
+  }
+
+  for (var i = 0; i < inNumSamples; i++) {
+    if (count <= 0) {
+      count += demand.next(this, 0, i + 1) * sampleRate;
+      if (Number.isNaN(count)) {
+        this.doneAction(this.inputs[2][0]);
+      }
+      out[i] = demand.next(this, 3, i + 1) || 0;
+    } else {
+      out[i] = 0;
+    }
+    count -= 1;
+  }
+
+  this._count = count;
+  this._prevreset = zreset;
+};
+
+dspProcess["di"] = dspProcess["dk"];
+
+dspProcess["dd"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var sampleRate = this._sampleRate;
+
+  var count = this._count;
+  var reset = this._prevreset;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    if (reset <= 0) {
+      demand.next(this, 0);
+      demand.next(this, 3);
+      count = 0;
+      reset += demand.next(this, 1, i + 1) * sampleRate;
+    } else {
+      reset -= 1;
+    }
+
+    if (count <= 0) {
+      count += demand.next(this, 0, i + 1) * sampleRate;
+      if (Number.isNaN(count)) {
+        this.doneAction(this.inputs[2][0]);
+      }
+      out[i] = demand.next(this, 3, i + 1) || 0;
+    } else {
+      out[i] = 0;
+    }
+
+    count -= 1;
+  }
+
+  this._count = count;
+  this._prevreset = reset;
+};
+
+SCUnitRepository.registerSCUnitClass("TDuty", SCUnitTDuty);
+
+module.exports = SCUnitTDuty;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],189:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13467,7 +18303,7 @@ dspProcess["next_k"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("TExpRand", SCUnitTExpRand);
 module.exports = SCUnitTExpRand;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],150:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],190:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13544,7 +18380,7 @@ dspProcess["next_k"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("TIRand", SCUnitTIRand);
 module.exports = SCUnitTIRand;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],151:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],191:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13621,7 +18457,131 @@ dspProcess["next_k"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("TRand", SCUnitTRand);
 module.exports = SCUnitTRand;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],152:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],192:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var SCUnitTWindex = function (_SCUnit) {
+  _inherits(SCUnitTWindex, _SCUnit);
+
+  function SCUnitTWindex() {
+    _classCallCheck(this, SCUnitTWindex);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitTWindex).apply(this, arguments));
+  }
+
+  _createClass(SCUnitTWindex, [{
+    key: "initialize",
+    value: function initialize() {
+      this.dspProcess = dspProcess["a"];
+
+      this._prevIndex = 0;
+      this._trig = 1;
+
+      this.dspProcess(1);
+    }
+  }]);
+
+  return SCUnitTWindex;
+}(SCUnit);
+
+dspProcess["k"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var trig = this.inputs[0][0];
+  var normalize = this.inputs[1][0];
+  var maxindex = this.inputs.length;
+
+  var index = maxindex;
+  var sum = 0;
+  var maxSum = 0;
+
+  if (0 < trig && this._trig <= 0) {
+    if (normalize === 1) {
+      for (var k = 2; k < maxindex; k++) {
+        maxSum += this.inputs[k][0];
+      }
+    } else {
+      maxSum = 1;
+    }
+    var max = maxSum * Math.random();
+
+    for (var _k = 2; _k < maxindex; _k++) {
+      sum += this.inputs[_k][0];
+      if (max <= sum) {
+        index = _k - 2;
+        break;
+      }
+    }
+
+    this._prevIndex = index;
+  } else {
+    index = this._prevIndex;
+  }
+
+  for (var i = 0; i < inNumSamples; i++) {
+    out[i] = index;
+  }
+
+  this._trig = trig;
+};
+
+dspProcess["ak"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var trigIn = this.inputs[0];
+  var normalize = this.inputs[1][0];
+  var maxindex = this.inputs.length;
+
+  var index = maxindex;
+  var sum = 0;
+  var maxSum = 0;
+  var curtrig = void 0;
+
+  if (normalize === 1) {
+    for (var k = 2; k < maxindex; k++) {
+      maxSum += this.inputs[k][0];
+    }
+  } else {
+    maxSum = 1;
+  }
+
+  for (var i = 0; i < inNumSamples; i++) {
+    curtrig = trigIn[i];
+
+    if (0 < curtrig && this._trig <= 0) {
+      var max = maxSum * Math.random();
+
+      for (var _k2 = 2; _k2 < maxindex; _k2++) {
+        sum += this.inputs[_k2][0];
+        if (max <= sum) {
+          index = _k2 - 2;
+          break;
+        }
+      }
+      this._prevIndex = index;
+    } else {
+      index = this._prevIndex;
+    }
+
+    out[i] = index;
+    this._trig = curtrig;
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("TWindex", SCUnitTWindex);
+
+module.exports = SCUnitTWindex;
+},{"../SCUnit":12,"../SCUnitRepository":13}],193:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13687,7 +18647,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Timer", SCUnitTimer);
 module.exports = SCUnitTimer;
-},{"../SCUnit":12,"../SCUnitRepository":13}],153:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],194:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13743,7 +18703,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("ToggleFF", SCUnitToggleFF);
 module.exports = SCUnitToggleFF;
-},{"../SCUnit":12,"../SCUnitRepository":13}],154:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],195:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13849,7 +18809,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Trig", SCUnitTrig);
 module.exports = SCUnitTrig;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],155:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],196:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -13950,7 +18910,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Trig1", SCUnitTrig1);
 module.exports = SCUnitTrig1;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],156:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],197:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14008,7 +18968,7 @@ dspProcess["k"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("TrigControl", SCUnitTrigControl);
 module.exports = SCUnitTrigControl;
-},{"../SCUnit":12,"../SCUnitRepository":13}],157:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],198:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14130,7 +19090,7 @@ dspProcess["next_kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("TrigImpulse", SCUnitTrigImpulse);
 module.exports = SCUnitTrigImpulse;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],158:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],199:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14210,7 +19170,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("TwoPole", SCUnitTwoPole);
 module.exports = SCUnitTwoPole;
-},{"../SCUnit":12,"../SCUnitRepository":13}],159:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],200:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14290,7 +19250,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("TwoZero", SCUnitTwoZero);
 module.exports = SCUnitTwoZero;
-},{"../SCUnit":12,"../SCUnitRepository":13}],160:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],201:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14305,8 +19265,7 @@ var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
 var demand = require("./_demand");
-var $i2n = "\nneg not isNil notNil bitNot abs asFloat asInt ceil floor frac sign squared cubed sqrt exp reciprocal\nmidicps cpsmidi midiratio ratiomidi dbamp ampdb octcps cpsoct log log2 log10 sin cos tan asin acos\natan sinh cosh tanh rand rand2 linrand bilinrand sum3rand distort softclip coin digitvalue silence\nthru rectWindow hanWindow welWindow triWindow ramp scurve numunaryselectors num tilde pi to_i half\ntwice".trim().split(/\s/);
-var $r2k = ["i", "k", "a"];
+var $i2n = "\nneg not isNil notNil bitNot abs asFloat asInt ceil floor frac sign squared cubed sqrt exp reciprocal\nmidicps cpsmidi midiratio ratiomidi dbamp ampdb octcps cpsoct log log2 log10 sin cos tan asin acos\natan sinh cosh tanh rand rand2 linrand bilinrand sum3rand distort softclip coin digitvalue silence\nthru rectWindow hanWindow welWindow triWindow ramp scurve\nnumunaryselectors".trim().split(/\s/);
 var dspProcess = {};
 
 var SCUnitUnaryOpUGen = function (_SCUnit) {
@@ -14322,19 +19281,19 @@ var SCUnitUnaryOpUGen = function (_SCUnit) {
     key: "initialize",
     value: function initialize() {
       var dspFunc = dspProcess[$i2n[this.specialIndex]];
+
       if (!dspFunc) {
         throw new Error("UnaryOpUGen[" + $i2n[this.specialIndex] + "] is not defined.");
       }
+
       if (this.calcRate === C.RATE_DEMAND) {
         this.dspProcess = dspFunc["d"];
       } else {
-        this.dspProcess = dspFunc[$r2k[this.inputSpecs[0].rate]] || null;
+        this.dspProcess = dspFunc[$r2k(this)];
+
         this._a = this.inputs[0][0];
-        if (this.dspProcess) {
-          this.dspProcess(1);
-        } else {
-          this.outputs[0][0] = dspFunc(this._a);
-        }
+
+        this.outputs[0][0] = dspFunc(this._a);
       }
     }
   }]);
@@ -14342,15 +19301,34 @@ var SCUnitUnaryOpUGen = function (_SCUnit) {
   return SCUnitUnaryOpUGen;
 }(SCUnit);
 
+function $r2k(unit) {
+  if (unit.calcRate === C.RATE_AUDIO) {
+    return "a";
+  }
+  return unit.calcRate === C.RATE_SCALAR ? "i" : "k";
+}
+
 dspProcess["neg"] = function (a) {
   return -a;
 };
 dspProcess["not"] = function (a) {
   return a === 0 ? 1 : 0;
 };
+// dspProcess["isNil"] = function (a) {
+//   return 0;
+// };
+// dspProcess["notNil"] = function (a) {
+//   return 0;
+// };
 dspProcess["abs"] = function (a) {
   return Math.abs(a);
 };
+// dspProcess["asFloat"] = function (a) {
+//   return 0;
+// };
+// dspProcess["asInt"] = function (a) {
+//   return 0;
+// };
 dspProcess["ceil"] = function (a) {
   return Math.ceil(a);
 };
@@ -14466,57 +19444,75 @@ dspProcess["softclip"] = function (a) {
 dspProcess["coin"] = function (a) {
   return Math.random() < a ? 1 : 0;
 };
-dspProcess["num"] = function (a) {
-  return +a;
-};
-dspProcess["tilde"] = function (a) {
-  return ~a;
-};
-dspProcess["pi"] = function (a) {
-  return Math.PI * a;
-};
-dspProcess["to_i"] = function (a) {
-  return a | 0;
-};
-dspProcess["half"] = function (a) {
-  return a * 0.5;
-};
-dspProcess["twice"] = function (a) {
-  return a * 2;
-};
+// dspProcess["digitvalue"] = function (a) {
+//   return 0;
+// };
+// dspProcess["silence"] = function (a) {
+//   return 0;
+// };
+// dspProcess["thru"] = function (a) {
+//   return 0;
+// };
+// dspProcess["rectWindow"] = function (a) {
+//   return 0;
+// };
+// dspProcess["hanWindow"] = function (a) {
+//   return 0;
+// };
+// dspProcess["welWindow"] = function (a) {
+//   return 0;
+// };
+// dspProcess["triWindow"] = function (a) {
+//   return 0;
+// };
+// dspProcess["ramp"] = function (a) {
+//   return 0;
+// };
+// dspProcess["scurve"] = function (a) {
+//   return 0;
+// };
+
 function unary_k(func) {
   return function () {
     this.outputs[0][0] = func(this.inputs[0][0]);
   };
 }
+
 function unary_a(func) {
   return function (inNumSamples) {
     var out = this.outputs[0];
     var aIn = this.inputs[0];
+
     for (var i = 0; i < inNumSamples; i++) {
       out[i] = func(aIn[i]);
     }
   };
 }
+
 function unary_d(func) {
   return function (inNumSamples) {
     if (inNumSamples) {
       var a = demand.next(this, 0, inNumSamples);
+
       this.outputs[0][0] = isNaN(a) ? NaN : func(a);
     } else {
       demand.reset(this, 0);
     }
   };
 }
+
 Object.keys(dspProcess).forEach(function (key) {
   var func = dspProcess[key];
+
   func["a"] = func["a"] || unary_a(func);
   func["k"] = func["k"] || unary_k(func);
   func["d"] = unary_d(func);
 });
+
 SCUnitRepository.registerSCUnitClass("UnaryOpUGen", SCUnitUnaryOpUGen);
+
 module.exports = SCUnitUnaryOpUGen;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":168}],161:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_demand":210}],202:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14627,7 +19623,7 @@ dspProcess["next_1"] = function () {
 };
 SCUnitRepository.registerSCUnitClass("VarLag", SCUnitVarLag);
 module.exports = SCUnitVarLag;
-},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":172}],162:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13,"../util/fill":214}],203:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14670,7 +19666,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("WhiteNoise", SCUnitWhiteNoise);
 module.exports = SCUnitWhiteNoise;
-},{"../SCUnit":12,"../SCUnitRepository":13}],163:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],204:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14746,7 +19742,7 @@ dspProcess["next_kk"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("Wrap", SCUnitWrap);
 module.exports = SCUnitWrap;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_wrap":177}],164:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"../util/sc_wrap":221}],205:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14858,7 +19854,7 @@ dspProcess["next_k"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("XFade2", SCUnitXFade2);
 module.exports = SCUnitXFade2;
-},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_sine":169}],165:[function(require,module,exports){
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13,"./_sine":211}],206:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -14940,7 +19936,106 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("XLine", SCUnitXLine);
 module.exports = SCUnitXLine;
-},{"../SCUnit":12,"../SCUnitRepository":13}],166:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],207:[function(require,module,exports){
+"use strict";
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var C = require("../Constants");
+var SCUnit = require("../SCUnit");
+var SCUnitRepository = require("../SCUnitRepository");
+var dspProcess = {};
+
+var SCUnitXOut = function (_SCUnit) {
+  _inherits(SCUnitXOut, _SCUnit);
+
+  function SCUnitXOut() {
+    _classCallCheck(this, SCUnitXOut);
+
+    return _possibleConstructorReturn(this, Object.getPrototypeOf(SCUnitXOut).apply(this, arguments));
+  }
+
+  _createClass(SCUnitXOut, [{
+    key: "initialize",
+    value: function initialize(rate) {
+      if (this.calcRate === C.RATE_AUDIO) {
+        this.dspProcess = dspProcess["a"];
+        this._buses = this.context.audioBuses;
+      } else {
+        this.dspProcess = dspProcess["k"];
+        this._buses = this.context.controlBuses;
+      }
+      this._slopeFactor = rate.slopeFactor;
+      this._xfade = this.inputs[1][0];
+    }
+  }]);
+
+  return SCUnitXOut;
+}(SCUnit);
+
+dspProcess["a"] = function (inNumSamples) {
+  var inputs = this.inputs;
+  var buses = this._buses;
+  var firstBusChannel = inputs[0][0] | 0;
+  var xfade = this._xfade;
+  var nextXFade = this.inputs[1][0];
+
+  if (xfade !== nextXFade) {
+    var xfadeSlope = (nextXFade - xfade) * this._slopeFactor;
+
+    for (var ch = 0, chmax = inputs.length - 2; ch < chmax; ch++) {
+      var out = buses[firstBusChannel + ch];
+      var inIn = inputs[ch + 2];
+
+      for (var i = 0; i < inNumSamples; i++) {
+        out[i] += (xfade + xfadeSlope * i) * (inIn[i] - out[i]);
+      }
+    }
+
+    this._xfade = nextXFade;
+  } else if (xfade === 1) {
+    for (var _ch = 0, _chmax = inputs.length - 2; _ch < _chmax; _ch++) {
+      var _out = buses[firstBusChannel + _ch];
+      var _inIn = inputs[_ch + 2];
+
+      _out.set(_inIn);
+    }
+  } else if (xfade !== 0) {
+    for (var _ch2 = 0, _chmax2 = inputs.length - 2; _ch2 < _chmax2; _ch2++) {
+      var _out2 = buses[firstBusChannel + _ch2];
+      var _inIn2 = inputs[_ch2 + 2];
+
+      for (var _i = 0; _i < inNumSamples; _i++) {
+        _out2[_i] += xfade * (_inIn2[_i] - _out2[_i]);
+      }
+    }
+  }
+};
+
+dspProcess["k"] = function () {
+  var inputs = this.inputs;
+  var buses = this._buses;
+  var firstBusChannel = inputs[0][0] | 0;
+  var xfade = this.inputs[1][0];
+
+  for (var ch = 0, chmax = inputs.length - 2; ch < chmax; ch++) {
+    var out = buses[firstBusChannel + ch];
+    var _in = inputs[ch + 2][0];
+
+    out[0] += xfade * (_in - out[0]);
+  }
+};
+
+SCUnitRepository.registerSCUnitClass("XOut", SCUnitXOut);
+
+module.exports = SCUnitXOut;
+},{"../Constants":4,"../SCUnit":12,"../SCUnitRepository":13}],208:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -15006,7 +20101,7 @@ dspProcess["next"] = function (inNumSamples) {
 };
 SCUnitRepository.registerSCUnitClass("ZeroCrossing", SCUnitZeroCrossing);
 module.exports = SCUnitZeroCrossing;
-},{"../SCUnit":12,"../SCUnitRepository":13}],167:[function(require,module,exports){
+},{"../SCUnit":12,"../SCUnitRepository":13}],209:[function(require,module,exports){
 "use strict";
 
 var log001 = Math.log(0.001);
@@ -15023,21 +20118,27 @@ function feedback(delaytime, decaytime) {
 }
 
 module.exports = { feedback: feedback };
-},{}],168:[function(require,module,exports){
+},{}],210:[function(require,module,exports){
 "use strict";
 
 var C = require("../Constants");
 
-function next(unit, index, offset) {
+function isDemand(unit, index) {
+  var fromUnit = unit.inputSpecs[index].unit;
+
+  return fromUnit && fromUnit.calcRate === C.RATE_DEMAND;
+}
+
+function next(unit, index, inNumSamples) {
   var fromUnit = unit.inputSpecs[index].unit;
 
   if (fromUnit) {
     switch (fromUnit.calcRate) {
       case C.RATE_AUDIO:
-        return unit.inputs[index][offset - 1];
+        return unit.inputs[index][inNumSamples - 1];
       case C.RATE_DEMAND:
-        fromUnit.process(offset);
-        break;
+        fromUnit.dspProcess(inNumSamples);
+      /* fall through */
     }
   }
 
@@ -15048,12 +20149,12 @@ function reset(unit, index) {
   var fromUnit = unit.inputSpecs[index].unit;
 
   if (fromUnit && fromUnit.calcRate === C.RATE_DEMAND) {
-    fromUnit.process(0);
+    fromUnit.dspProcess(0);
   }
 }
 
-module.exports = { next: next, reset: reset };
-},{"../Constants":4}],169:[function(require,module,exports){
+module.exports = { isDemand: isDemand, next: next, reset: reset };
+},{"../Constants":4}],211:[function(require,module,exports){
 "use strict";
 
 var kSineSize = 8192;
@@ -15103,63 +20204,101 @@ makeSine();
 makeSineWaveTable();
 
 module.exports = { kSineSize: kSineSize, kSineMask: kSineMask, kBadValue: kBadValue, gSine: gSine, gInvSine: gInvSine, gSineWavetable: gSineWavetable };
-},{}],170:[function(require,module,exports){
+},{}],212:[function(require,module,exports){
 "use strict";
 
 module.exports = {
   SCUnitA2K: require("./SCUnitA2K"),
-  SCUnitAPF: require("./SCUnitAPF"),
   SCUnitAllpassC: require("./SCUnitAllpassC"),
   SCUnitAllpassL: require("./SCUnitAllpassL"),
   SCUnitAllpassN: require("./SCUnitAllpassN"),
+  SCUnitAmpComp: require("./SCUnitAmpComp"),
+  SCUnitAmpCompA: require("./SCUnitAmpCompA"),
+  SCUnitAmplitude: require("./SCUnitAmplitude"),
+  SCUnitAPF: require("./SCUnitAPF"),
+  SCUnitBalance2: require("./SCUnitBalance2"),
+  SCUnitBinaryOpUGen: require("./SCUnitBinaryOpUGen"),
+  SCUnitBlip: require("./SCUnitBlip"),
   SCUnitBPF: require("./SCUnitBPF"),
   SCUnitBPZ2: require("./SCUnitBPZ2"),
   SCUnitBRF: require("./SCUnitBRF"),
-  SCUnitBRZ2: require("./SCUnitBRZ2"),
-  SCUnitBinaryOpUGen: require("./SCUnitBinaryOpUGen"),
-  SCUnitBlip: require("./SCUnitBlip"),
   SCUnitBrownNoise: require("./SCUnitBrownNoise"),
+  SCUnitBRZ2: require("./SCUnitBRZ2"),
   SCUnitClip: require("./SCUnitClip"),
   SCUnitClipNoise: require("./SCUnitClipNoise"),
   SCUnitCoinGate: require("./SCUnitCoinGate"),
   SCUnitCombC: require("./SCUnitCombC"),
   SCUnitCombL: require("./SCUnitCombL"),
   SCUnitCombN: require("./SCUnitCombN"),
+  SCUnitCompander: require("./SCUnitCompander"),
   SCUnitControl: require("./SCUnitControl"),
   SCUnitControlDur: require("./SCUnitControlDur"),
   SCUnitControlRate: require("./SCUnitControlRate"),
   SCUnitCrackle: require("./SCUnitCrackle"),
+  SCUnitDbrown: require("./SCUnitDbrown"),
   SCUnitDC: require("./SCUnitDC"),
-  SCUnitDecay: require("./SCUnitDecay"),
   SCUnitDecay2: require("./SCUnitDecay2"),
+  SCUnitDecay: require("./SCUnitDecay"),
   SCUnitDelay1: require("./SCUnitDelay1"),
   SCUnitDelay2: require("./SCUnitDelay2"),
   SCUnitDelayC: require("./SCUnitDelayC"),
   SCUnitDelayL: require("./SCUnitDelayL"),
   SCUnitDelayN: require("./SCUnitDelayN"),
+  SCUnitDemand: require("./SCUnitDemand"),
   SCUnitDetectSilence: require("./SCUnitDetectSilence"),
-  SCUnitDust: require("./SCUnitDust"),
+  SCUnitDgeom: require("./SCUnitDgeom"),
+  SCUnitDibrown: require("./SCUnitDibrown"),
+  SCUnitDiwhite: require("./SCUnitDiwhite"),
+  SCUnitDrand: require("./SCUnitDrand"),
+  SCUnitDreset: require("./SCUnitDreset"),
+  SCUnitDseq: require("./SCUnitDseq"),
+  SCUnitDser: require("./SCUnitDser"),
+  SCUnitDseries: require("./SCUnitDseries"),
+  SCUnitDshuf: require("./SCUnitDshuf"),
+  SCUnitDstutter: require("./SCUnitDstutter"),
+  SCUnitDswitch1: require("./SCUnitDswitch1"),
+  SCUnitDswitch: require("./SCUnitDswitch"),
   SCUnitDust2: require("./SCUnitDust2"),
+  SCUnitDust: require("./SCUnitDust"),
+  SCUnitDuty: require("./SCUnitDuty"),
+  SCUnitDwhite: require("./SCUnitDwhite"),
+  SCUnitDwrand: require("./SCUnitDwrand"),
+  SCUnitDxrand: require("./SCUnitDxrand"),
   SCUnitEnvGen: require("./SCUnitEnvGen"),
   SCUnitExpRand: require("./SCUnitExpRand"),
-  SCUnitFOS: require("./SCUnitFOS"),
-  SCUnitFSinOsc: require("./SCUnitFSinOsc"),
   SCUnitFold: require("./SCUnitFold"),
+  SCUnitFormlet: require("./SCUnitFormlet"),
+  SCUnitFOS: require("./SCUnitFOS"),
+  SCUnitFreeVerb2: require("./SCUnitFreeVerb2"),
   SCUnitFreeVerb: require("./SCUnitFreeVerb"),
+  SCUnitFSinOsc: require("./SCUnitFSinOsc"),
   SCUnitGate: require("./SCUnitGate"),
   SCUnitGrayNoise: require("./SCUnitGrayNoise"),
+  SCUnitHasher: require("./SCUnitHasher"),
   SCUnitHPF: require("./SCUnitHPF"),
   SCUnitHPZ1: require("./SCUnitHPZ1"),
   SCUnitHPZ2: require("./SCUnitHPZ2"),
-  SCUnitIRand: require("./SCUnitIRand"),
   SCUnitImpulse: require("./SCUnitImpulse"),
   SCUnitIn: require("./SCUnitIn"),
   SCUnitInRange: require("./SCUnitInRange"),
+  SCUnitInRect: require("./SCUnitInRect"),
   SCUnitIntegrator: require("./SCUnitIntegrator"),
+  SCUnitIRand: require("./SCUnitIRand"),
   SCUnitK2A: require("./SCUnitK2A"),
   SCUnitKeyState: require("./SCUnitKeyState"),
   SCUnitKlang: require("./SCUnitKlang"),
   SCUnitKlank: require("./SCUnitKlank"),
+  SCUnitLag2: require("./SCUnitLag2"),
+  SCUnitLag2UD: require("./SCUnitLag2UD"),
+  SCUnitLag3: require("./SCUnitLag3"),
+  SCUnitLag3UD: require("./SCUnitLag3UD"),
+  SCUnitLag: require("./SCUnitLag"),
+  SCUnitLagControl: require("./SCUnitLagControl"),
+  SCUnitLagUD: require("./SCUnitLagUD"),
+  SCUnitLastValue: require("./SCUnitLastValue"),
+  SCUnitLatch: require("./SCUnitLatch"),
+  SCUnitLeakDC: require("./SCUnitLeakDC"),
+  SCUnitLeastChange: require("./SCUnitLeastChange"),
   SCUnitLFClipNoise: require("./SCUnitLFClipNoise"),
   SCUnitLFCub: require("./SCUnitLFCub"),
   SCUnitLFDClipNoise: require("./SCUnitLFDClipNoise"),
@@ -15173,35 +20312,34 @@ module.exports = {
   SCUnitLFPulse: require("./SCUnitLFPulse"),
   SCUnitLFSaw: require("./SCUnitLFSaw"),
   SCUnitLFTri: require("./SCUnitLFTri"),
+  SCUnitLimiter: require("./SCUnitLimiter"),
+  SCUnitLine: require("./SCUnitLine"),
+  SCUnitLinen: require("./SCUnitLinen"),
+  SCUnitLinExp: require("./SCUnitLinExp"),
+  SCUnitLinLin: require("./SCUnitLinLin"),
+  SCUnitLinPan2: require("./SCUnitLinPan2"),
+  SCUnitLinRand: require("./SCUnitLinRand"),
+  SCUnitLinXFade2: require("./SCUnitLinXFade2"),
+  SCUnitLogistic: require("./SCUnitLogistic"),
   SCUnitLPF: require("./SCUnitLPF"),
   SCUnitLPZ1: require("./SCUnitLPZ1"),
   SCUnitLPZ2: require("./SCUnitLPZ2"),
-  SCUnitLag: require("./SCUnitLag"),
-  SCUnitLag2: require("./SCUnitLag2"),
-  SCUnitLag2UD: require("./SCUnitLag2UD"),
-  SCUnitLag3: require("./SCUnitLag3"),
-  SCUnitLag3UD: require("./SCUnitLag3UD"),
-  SCUnitLagControl: require("./SCUnitLagControl"),
-  SCUnitLagUD: require("./SCUnitLagUD"),
-  SCUnitLatch: require("./SCUnitLatch"),
-  SCUnitLeakDC: require("./SCUnitLeakDC"),
-  SCUnitLinExp: require("./SCUnitLinExp"),
-  SCUnitLinLin: require("./SCUnitLinLin"),
-  SCUnitLinRand: require("./SCUnitLinRand"),
-  SCUnitLinXFade2: require("./SCUnitLinXFade2"),
-  SCUnitLine: require("./SCUnitLine"),
-  SCUnitLinen: require("./SCUnitLinen"),
-  SCUnitLogistic: require("./SCUnitLogistic"),
+  SCUnitMantissaMask: require("./SCUnitMantissaMask"),
+  SCUnitMedian: require("./SCUnitMedian"),
   SCUnitMidEQ: require("./SCUnitMidEQ"),
+  SCUnitModDif: require("./SCUnitModDif"),
+  SCUnitMostChange: require("./SCUnitMostChange"),
   SCUnitMouseButton: require("./SCUnitMouseButton"),
   SCUnitMouseX: require("./SCUnitMouseX"),
   SCUnitMouseY: require("./SCUnitMouseY"),
   SCUnitMulAdd: require("./SCUnitMulAdd"),
+  SCUnitNormalizer: require("./SCUnitNormalizer"),
   SCUnitNRand: require("./SCUnitNRand"),
   SCUnitNumAudioBuses: require("./SCUnitNumAudioBuses"),
   SCUnitNumControlBuses: require("./SCUnitNumControlBuses"),
   SCUnitNumInputBuses: require("./SCUnitNumInputBuses"),
   SCUnitNumOutputBuses: require("./SCUnitNumOutputBuses"),
+  SCUnitOffsetOut: require("./SCUnitOffsetOut"),
   SCUnitOnePole: require("./SCUnitOnePole"),
   SCUnitOneZero: require("./SCUnitOneZero"),
   SCUnitOut: require("./SCUnitOut"),
@@ -15213,26 +20351,28 @@ module.exports = {
   SCUnitPulse: require("./SCUnitPulse"),
   SCUnitPulseCount: require("./SCUnitPulseCount"),
   SCUnitPulseDivider: require("./SCUnitPulseDivider"),
-  SCUnitRHPF: require("./SCUnitRHPF"),
-  SCUnitRLPF: require("./SCUnitRLPF"),
   SCUnitRadiansPerSample: require("./SCUnitRadiansPerSample"),
   SCUnitRamp: require("./SCUnitRamp"),
   SCUnitRand: require("./SCUnitRand"),
   SCUnitReplaceOut: require("./SCUnitReplaceOut"),
   SCUnitResonz: require("./SCUnitResonz"),
+  SCUnitRHPF: require("./SCUnitRHPF"),
   SCUnitRingz: require("./SCUnitRingz"),
+  SCUnitRLPF: require("./SCUnitRLPF"),
+  SCUnitRotate2: require("./SCUnitRotate2"),
   SCUnitRunningMax: require("./SCUnitRunningMax"),
   SCUnitRunningMin: require("./SCUnitRunningMin"),
-  SCUnitSOS: require("./SCUnitSOS"),
   SCUnitSampleDur: require("./SCUnitSampleDur"),
   SCUnitSampleRate: require("./SCUnitSampleRate"),
   SCUnitSaw: require("./SCUnitSaw"),
+  SCUnitSchmidt: require("./SCUnitSchmidt"),
   SCUnitSelect: require("./SCUnitSelect"),
   SCUnitSetResetFF: require("./SCUnitSetResetFF"),
   SCUnitSinOsc: require("./SCUnitSinOsc"),
   SCUnitSinOscFB: require("./SCUnitSinOscFB"),
   SCUnitSlew: require("./SCUnitSlew"),
   SCUnitSlope: require("./SCUnitSlope"),
+  SCUnitSOS: require("./SCUnitSOS"),
   SCUnitStepper: require("./SCUnitStepper"),
   SCUnitSubsampleOffset: require("./SCUnitSubsampleOffset"),
   SCUnitSum3: require("./SCUnitSum3"),
@@ -15241,15 +20381,17 @@ module.exports = {
   SCUnitSyncSaw: require("./SCUnitSyncSaw"),
   SCUnitT2A: require("./SCUnitT2A"),
   SCUnitT2K: require("./SCUnitT2K"),
+  SCUnitTDuty: require("./SCUnitTDuty"),
   SCUnitTExpRand: require("./SCUnitTExpRand"),
-  SCUnitTIRand: require("./SCUnitTIRand"),
-  SCUnitTRand: require("./SCUnitTRand"),
   SCUnitTimer: require("./SCUnitTimer"),
+  SCUnitTIRand: require("./SCUnitTIRand"),
   SCUnitToggleFF: require("./SCUnitToggleFF"),
-  SCUnitTrig: require("./SCUnitTrig"),
+  SCUnitTRand: require("./SCUnitTRand"),
   SCUnitTrig1: require("./SCUnitTrig1"),
+  SCUnitTrig: require("./SCUnitTrig"),
   SCUnitTrigControl: require("./SCUnitTrigControl"),
   SCUnitTrigImpulse: require("./SCUnitTrigImpulse"),
+  SCUnitTWindex: require("./SCUnitTWindex"),
   SCUnitTwoPole: require("./SCUnitTwoPole"),
   SCUnitTwoZero: require("./SCUnitTwoZero"),
   SCUnitUnaryOpUGen: require("./SCUnitUnaryOpUGen"),
@@ -15258,9 +20400,10 @@ module.exports = {
   SCUnitWrap: require("./SCUnitWrap"),
   SCUnitXFade2: require("./SCUnitXFade2"),
   SCUnitXLine: require("./SCUnitXLine"),
+  SCUnitXOut: require("./SCUnitXOut"),
   SCUnitZeroCrossing: require("./SCUnitZeroCrossing")
 };
-},{"./SCUnitA2K":15,"./SCUnitAPF":16,"./SCUnitAllpassC":17,"./SCUnitAllpassL":18,"./SCUnitAllpassN":19,"./SCUnitBPF":20,"./SCUnitBPZ2":21,"./SCUnitBRF":22,"./SCUnitBRZ2":23,"./SCUnitBinaryOpUGen":24,"./SCUnitBlip":25,"./SCUnitBrownNoise":26,"./SCUnitClip":27,"./SCUnitClipNoise":28,"./SCUnitCoinGate":29,"./SCUnitCombC":30,"./SCUnitCombL":31,"./SCUnitCombN":32,"./SCUnitControl":33,"./SCUnitControlDur":34,"./SCUnitControlRate":35,"./SCUnitCrackle":36,"./SCUnitDC":37,"./SCUnitDecay":38,"./SCUnitDecay2":39,"./SCUnitDelay1":40,"./SCUnitDelay2":41,"./SCUnitDelayC":42,"./SCUnitDelayL":43,"./SCUnitDelayN":44,"./SCUnitDetectSilence":45,"./SCUnitDust":46,"./SCUnitDust2":47,"./SCUnitEnvGen":48,"./SCUnitExpRand":49,"./SCUnitFOS":50,"./SCUnitFSinOsc":51,"./SCUnitFold":52,"./SCUnitFreeVerb":53,"./SCUnitGate":54,"./SCUnitGrayNoise":55,"./SCUnitHPF":56,"./SCUnitHPZ1":57,"./SCUnitHPZ2":58,"./SCUnitIRand":59,"./SCUnitImpulse":60,"./SCUnitIn":61,"./SCUnitInRange":62,"./SCUnitIntegrator":63,"./SCUnitK2A":64,"./SCUnitKeyState":65,"./SCUnitKlang":66,"./SCUnitKlank":67,"./SCUnitLFClipNoise":68,"./SCUnitLFCub":69,"./SCUnitLFDClipNoise":70,"./SCUnitLFDNoise0":71,"./SCUnitLFDNoise1":72,"./SCUnitLFDNoise3":73,"./SCUnitLFNoise0":74,"./SCUnitLFNoise1":75,"./SCUnitLFNoise2":76,"./SCUnitLFPar":77,"./SCUnitLFPulse":78,"./SCUnitLFSaw":79,"./SCUnitLFTri":80,"./SCUnitLPF":81,"./SCUnitLPZ1":82,"./SCUnitLPZ2":83,"./SCUnitLag":84,"./SCUnitLag2":85,"./SCUnitLag2UD":86,"./SCUnitLag3":87,"./SCUnitLag3UD":88,"./SCUnitLagControl":89,"./SCUnitLagUD":90,"./SCUnitLatch":91,"./SCUnitLeakDC":92,"./SCUnitLinExp":93,"./SCUnitLinLin":94,"./SCUnitLinRand":95,"./SCUnitLinXFade2":96,"./SCUnitLine":97,"./SCUnitLinen":98,"./SCUnitLogistic":99,"./SCUnitMidEQ":100,"./SCUnitMouseButton":101,"./SCUnitMouseX":102,"./SCUnitMouseY":103,"./SCUnitMulAdd":104,"./SCUnitNRand":105,"./SCUnitNumAudioBuses":106,"./SCUnitNumControlBuses":107,"./SCUnitNumInputBuses":108,"./SCUnitNumOutputBuses":109,"./SCUnitOnePole":110,"./SCUnitOneZero":111,"./SCUnitOut":112,"./SCUnitPan2":113,"./SCUnitPeak":114,"./SCUnitPeakFollower":115,"./SCUnitPhasor":116,"./SCUnitPinkNoise":117,"./SCUnitPulse":118,"./SCUnitPulseCount":119,"./SCUnitPulseDivider":120,"./SCUnitRHPF":121,"./SCUnitRLPF":122,"./SCUnitRadiansPerSample":123,"./SCUnitRamp":124,"./SCUnitRand":125,"./SCUnitReplaceOut":126,"./SCUnitResonz":127,"./SCUnitRingz":128,"./SCUnitRunningMax":129,"./SCUnitRunningMin":130,"./SCUnitSOS":131,"./SCUnitSampleDur":132,"./SCUnitSampleRate":133,"./SCUnitSaw":134,"./SCUnitSelect":135,"./SCUnitSetResetFF":136,"./SCUnitSinOsc":137,"./SCUnitSinOscFB":138,"./SCUnitSlew":139,"./SCUnitSlope":140,"./SCUnitStepper":141,"./SCUnitSubsampleOffset":142,"./SCUnitSum3":143,"./SCUnitSum4":144,"./SCUnitSweep":145,"./SCUnitSyncSaw":146,"./SCUnitT2A":147,"./SCUnitT2K":148,"./SCUnitTExpRand":149,"./SCUnitTIRand":150,"./SCUnitTRand":151,"./SCUnitTimer":152,"./SCUnitToggleFF":153,"./SCUnitTrig":154,"./SCUnitTrig1":155,"./SCUnitTrigControl":156,"./SCUnitTrigImpulse":157,"./SCUnitTwoPole":158,"./SCUnitTwoZero":159,"./SCUnitUnaryOpUGen":160,"./SCUnitVarLag":161,"./SCUnitWhiteNoise":162,"./SCUnitWrap":163,"./SCUnitXFade2":164,"./SCUnitXLine":165,"./SCUnitZeroCrossing":166}],171:[function(require,module,exports){
+},{"./SCUnitA2K":15,"./SCUnitAPF":16,"./SCUnitAllpassC":17,"./SCUnitAllpassL":18,"./SCUnitAllpassN":19,"./SCUnitAmpComp":20,"./SCUnitAmpCompA":21,"./SCUnitAmplitude":22,"./SCUnitBPF":23,"./SCUnitBPZ2":24,"./SCUnitBRF":25,"./SCUnitBRZ2":26,"./SCUnitBalance2":27,"./SCUnitBinaryOpUGen":28,"./SCUnitBlip":29,"./SCUnitBrownNoise":30,"./SCUnitClip":31,"./SCUnitClipNoise":32,"./SCUnitCoinGate":33,"./SCUnitCombC":34,"./SCUnitCombL":35,"./SCUnitCombN":36,"./SCUnitCompander":37,"./SCUnitControl":38,"./SCUnitControlDur":39,"./SCUnitControlRate":40,"./SCUnitCrackle":41,"./SCUnitDC":42,"./SCUnitDbrown":43,"./SCUnitDecay":44,"./SCUnitDecay2":45,"./SCUnitDelay1":46,"./SCUnitDelay2":47,"./SCUnitDelayC":48,"./SCUnitDelayL":49,"./SCUnitDelayN":50,"./SCUnitDemand":51,"./SCUnitDetectSilence":52,"./SCUnitDgeom":53,"./SCUnitDibrown":54,"./SCUnitDiwhite":55,"./SCUnitDrand":56,"./SCUnitDreset":57,"./SCUnitDseq":58,"./SCUnitDser":59,"./SCUnitDseries":60,"./SCUnitDshuf":61,"./SCUnitDstutter":62,"./SCUnitDswitch":63,"./SCUnitDswitch1":64,"./SCUnitDust":65,"./SCUnitDust2":66,"./SCUnitDuty":67,"./SCUnitDwhite":68,"./SCUnitDwrand":69,"./SCUnitDxrand":70,"./SCUnitEnvGen":71,"./SCUnitExpRand":72,"./SCUnitFOS":73,"./SCUnitFSinOsc":74,"./SCUnitFold":75,"./SCUnitFormlet":76,"./SCUnitFreeVerb":77,"./SCUnitFreeVerb2":78,"./SCUnitGate":79,"./SCUnitGrayNoise":80,"./SCUnitHPF":81,"./SCUnitHPZ1":82,"./SCUnitHPZ2":83,"./SCUnitHasher":84,"./SCUnitIRand":85,"./SCUnitImpulse":86,"./SCUnitIn":87,"./SCUnitInRange":88,"./SCUnitInRect":89,"./SCUnitIntegrator":90,"./SCUnitK2A":91,"./SCUnitKeyState":92,"./SCUnitKlang":93,"./SCUnitKlank":94,"./SCUnitLFClipNoise":95,"./SCUnitLFCub":96,"./SCUnitLFDClipNoise":97,"./SCUnitLFDNoise0":98,"./SCUnitLFDNoise1":99,"./SCUnitLFDNoise3":100,"./SCUnitLFNoise0":101,"./SCUnitLFNoise1":102,"./SCUnitLFNoise2":103,"./SCUnitLFPar":104,"./SCUnitLFPulse":105,"./SCUnitLFSaw":106,"./SCUnitLFTri":107,"./SCUnitLPF":108,"./SCUnitLPZ1":109,"./SCUnitLPZ2":110,"./SCUnitLag":111,"./SCUnitLag2":112,"./SCUnitLag2UD":113,"./SCUnitLag3":114,"./SCUnitLag3UD":115,"./SCUnitLagControl":116,"./SCUnitLagUD":117,"./SCUnitLastValue":118,"./SCUnitLatch":119,"./SCUnitLeakDC":120,"./SCUnitLeastChange":121,"./SCUnitLimiter":122,"./SCUnitLinExp":123,"./SCUnitLinLin":124,"./SCUnitLinPan2":125,"./SCUnitLinRand":126,"./SCUnitLinXFade2":127,"./SCUnitLine":128,"./SCUnitLinen":129,"./SCUnitLogistic":130,"./SCUnitMantissaMask":131,"./SCUnitMedian":132,"./SCUnitMidEQ":133,"./SCUnitModDif":134,"./SCUnitMostChange":135,"./SCUnitMouseButton":136,"./SCUnitMouseX":137,"./SCUnitMouseY":138,"./SCUnitMulAdd":139,"./SCUnitNRand":140,"./SCUnitNormalizer":141,"./SCUnitNumAudioBuses":142,"./SCUnitNumControlBuses":143,"./SCUnitNumInputBuses":144,"./SCUnitNumOutputBuses":145,"./SCUnitOffsetOut":146,"./SCUnitOnePole":147,"./SCUnitOneZero":148,"./SCUnitOut":149,"./SCUnitPan2":150,"./SCUnitPeak":151,"./SCUnitPeakFollower":152,"./SCUnitPhasor":153,"./SCUnitPinkNoise":154,"./SCUnitPulse":155,"./SCUnitPulseCount":156,"./SCUnitPulseDivider":157,"./SCUnitRHPF":158,"./SCUnitRLPF":159,"./SCUnitRadiansPerSample":160,"./SCUnitRamp":161,"./SCUnitRand":162,"./SCUnitReplaceOut":163,"./SCUnitResonz":164,"./SCUnitRingz":165,"./SCUnitRotate2":166,"./SCUnitRunningMax":167,"./SCUnitRunningMin":168,"./SCUnitSOS":169,"./SCUnitSampleDur":170,"./SCUnitSampleRate":171,"./SCUnitSaw":172,"./SCUnitSchmidt":173,"./SCUnitSelect":174,"./SCUnitSetResetFF":175,"./SCUnitSinOsc":176,"./SCUnitSinOscFB":177,"./SCUnitSlew":178,"./SCUnitSlope":179,"./SCUnitStepper":180,"./SCUnitSubsampleOffset":181,"./SCUnitSum3":182,"./SCUnitSum4":183,"./SCUnitSweep":184,"./SCUnitSyncSaw":185,"./SCUnitT2A":186,"./SCUnitT2K":187,"./SCUnitTDuty":188,"./SCUnitTExpRand":189,"./SCUnitTIRand":190,"./SCUnitTRand":191,"./SCUnitTWindex":192,"./SCUnitTimer":193,"./SCUnitToggleFF":194,"./SCUnitTrig":195,"./SCUnitTrig1":196,"./SCUnitTrigControl":197,"./SCUnitTrigImpulse":198,"./SCUnitTwoPole":199,"./SCUnitTwoZero":200,"./SCUnitUnaryOpUGen":201,"./SCUnitVarLag":202,"./SCUnitWhiteNoise":203,"./SCUnitWrap":204,"./SCUnitXFade2":205,"./SCUnitXLine":206,"./SCUnitXOut":207,"./SCUnitZeroCrossing":208}],213:[function(require,module,exports){
 "use strict";
 
 function clamp(value, minValue, maxValue) {
@@ -15268,7 +20411,7 @@ function clamp(value, minValue, maxValue) {
 }
 
 module.exports = clamp;
-},{}],172:[function(require,module,exports){
+},{}],214:[function(require,module,exports){
 "use strict";
 
 function fill(list, value) {
@@ -15284,7 +20427,7 @@ function fill(list, value) {
 }
 
 module.exports = fill;
-},{}],173:[function(require,module,exports){
+},{}],215:[function(require,module,exports){
 "use strict";
 
 function fillRange(list, value, start, end) {
@@ -15300,14 +20443,16 @@ function fillRange(list, value, start, end) {
 }
 
 module.exports = fillRange;
-},{}],174:[function(require,module,exports){
+},{}],216:[function(require,module,exports){
 "use strict";
 
 module.exports.clamp = require("./clamp");
 module.exports.fill = require("./fill");
 module.exports.fillRange = require("./fillRange");
 module.exports.sc_cubicinterp = require("./sc_cubicinterp");
+module.exports.sc_exprandrange = require("./sc_exprandrange");
 module.exports.sc_fold = require("./sc_fold");
+module.exports.sc_randrange = require("./sc_randrange");
 module.exports.sc_wrap = require("./sc_wrap");
 module.exports.toNumber = require("./toNumber");
 module.exports.toPowerOfTwo = require("./toPowerOfTwo");
@@ -15316,7 +20461,7 @@ module.exports.toValidNumberOfAudioBus = require("./toValidNumberOfAudioBus");
 module.exports.toValidNumberOfChannels = require("./toValidNumberOfChannels");
 module.exports.toValidNumberOfControlBus = require("./toValidNumberOfControlBus");
 module.exports.toValidSampleRate = require("./toValidSampleRate");
-},{"./clamp":171,"./fill":172,"./fillRange":173,"./sc_cubicinterp":175,"./sc_fold":176,"./sc_wrap":177,"./toNumber":178,"./toPowerOfTwo":179,"./toValidBlockSize":180,"./toValidNumberOfAudioBus":181,"./toValidNumberOfChannels":182,"./toValidNumberOfControlBus":183,"./toValidSampleRate":184}],175:[function(require,module,exports){
+},{"./clamp":213,"./fill":214,"./fillRange":215,"./sc_cubicinterp":217,"./sc_exprandrange":218,"./sc_fold":219,"./sc_randrange":220,"./sc_wrap":221,"./toNumber":222,"./toPowerOfTwo":223,"./toValidBlockSize":224,"./toValidNumberOfAudioBus":225,"./toValidNumberOfChannels":226,"./toValidNumberOfControlBus":227,"./toValidSampleRate":228}],217:[function(require,module,exports){
 "use strict";
 
 function cubicinterp(x, y0, y1, y2, y3) {
@@ -15329,7 +20474,18 @@ function cubicinterp(x, y0, y1, y2, y3) {
 }
 
 module.exports = cubicinterp;
-},{}],176:[function(require,module,exports){
+},{}],218:[function(require,module,exports){
+"use strict";
+
+function sc_exprandrange(a, b) {
+  if (a < b) {
+    return a * Math.exp(Math.log(b / a) * Math.random());
+  }
+  return b * Math.exp(Math.log(a / b) * Math.random());
+}
+
+module.exports = sc_exprandrange;
+},{}],219:[function(require,module,exports){
 "use strict";
 
 function fold(val, lo, hi) {
@@ -15366,7 +20522,18 @@ function fold(val, lo, hi) {
 }
 
 module.exports = fold;
-},{}],177:[function(require,module,exports){
+},{}],220:[function(require,module,exports){
+"use strict";
+
+function sc_randrange(a, b) {
+  if (a < b) {
+    return Math.random() * (b - a) + a;
+  }
+  return Math.random() * (a - b) + b;
+}
+
+module.exports = sc_randrange;
+},{}],221:[function(require,module,exports){
 "use strict";
 
 function wrap(val, lo, hi) {
@@ -15394,7 +20561,7 @@ function wrap(val, lo, hi) {
 }
 
 module.exports = wrap;
-},{}],178:[function(require,module,exports){
+},{}],222:[function(require,module,exports){
 "use strict";
 
 function toNumber(value) {
@@ -15402,7 +20569,7 @@ function toNumber(value) {
 }
 
 module.exports = toNumber;
-},{}],179:[function(require,module,exports){
+},{}],223:[function(require,module,exports){
 "use strict";
 
 function toPowerOfTwo(value, round) {
@@ -15411,7 +20578,7 @@ function toPowerOfTwo(value, round) {
 }
 
 module.exports = toPowerOfTwo;
-},{}],180:[function(require,module,exports){
+},{}],224:[function(require,module,exports){
 "use strict";
 
 var clamp = require("./clamp");
@@ -15424,7 +20591,7 @@ function toValidBlockSize(value) {
 }
 
 module.exports = toValidBlockSize;
-},{"./clamp":171,"./toPowerOfTwo":179}],181:[function(require,module,exports){
+},{"./clamp":213,"./toPowerOfTwo":223}],225:[function(require,module,exports){
 "use strict";
 
 var toNumber = require("./toNumber");
@@ -15438,7 +20605,7 @@ function toValidNumberOfAudioBus(value) {
 }
 
 module.exports = toValidNumberOfAudioBus;
-},{"./clamp":171,"./toNumber":178}],182:[function(require,module,exports){
+},{"./clamp":213,"./toNumber":222}],226:[function(require,module,exports){
 "use strict";
 
 var toNumber = require("./toNumber");
@@ -15451,7 +20618,7 @@ function toValidNumberOfChannels(value) {
 }
 
 module.exports = toValidNumberOfChannels;
-},{"./clamp":171,"./toNumber":178}],183:[function(require,module,exports){
+},{"./clamp":213,"./toNumber":222}],227:[function(require,module,exports){
 "use strict";
 
 var toNumber = require("./toNumber");
@@ -15465,7 +20632,7 @@ function toValidNumberOfControlBus(value) {
 }
 
 module.exports = toValidNumberOfControlBus;
-},{"./clamp":171,"./toNumber":178}],184:[function(require,module,exports){
+},{"./clamp":213,"./toNumber":222}],228:[function(require,module,exports){
 "use strict";
 
 var toNumber = require("./toNumber");
@@ -15479,7 +20646,7 @@ function toValidSampleRate(value) {
 }
 
 module.exports = toValidSampleRate;
-},{"./clamp":171,"./toNumber":178}],185:[function(require,module,exports){
+},{"./clamp":213,"./toNumber":222}],229:[function(require,module,exports){
 (function (process,global){
 (function (global, undefined) {
     "use strict";
@@ -15658,13 +20825,102 @@ module.exports = toValidSampleRate;
 }(typeof self === "undefined" ? typeof global === "undefined" ? this : global : self));
 
 }).call(this,require('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"_process":3}],186:[function(require,module,exports){
+},{"_process":3}],230:[function(require,module,exports){
+'use strict';
+
+/**
+ * Randomize the order of the elements in a given array.
+ * @param {Array} arr - The given array.
+ * @param {Object} [options] - Optional configuration options.
+ * @param {Boolean} [options.copy] - Sets if should return a shuffled copy of the given array. By default it's a falsy value.
+ * @param {Function} [options.rng] - Specifies a custom random number generator.
+ * @returns {Array}
+ */
+function shuffle(arr, options) {
+
+  if (!Array.isArray(arr)) {
+    throw new Error('shuffle expect an array as parameter.');
+  }
+
+  options = options || {};
+
+  var collection = arr,
+      len = arr.length,
+      rng = options.rng || Math.random,
+      random,
+      temp;
+
+  if (options.copy === true) {
+    collection = arr.slice();
+  }
+
+  while (len) {
+    random = Math.floor(rng() * len);
+    len -= 1;
+    temp = collection[len];
+    collection[len] = collection[random];
+    collection[random] = temp;
+  }
+
+  return collection;
+};
+
+/**
+ * Pick one or more random elements from the given array.
+ * @param {Array} arr - The given array.
+ * @param {Object} [options] - Optional configuration options.
+ * @param {Number} [options.picks] - Specifies how many random elements you want to pick. By default it picks 1.
+ * @param {Function} [options.rng] - Specifies a custom random number generator.
+ * @returns {Object}
+ */
+shuffle.pick = function(arr, options) {
+
+  if (!Array.isArray(arr)) {
+    throw new Error('shuffle.pick() expect an array as parameter.');
+  }
+
+  options = options || {};
+
+  var rng = options.rng || Math.random,
+      picks = options.picks || 1;
+
+  if (typeof picks === 'number' && picks !== 1) {
+    var len = arr.length,
+        collection = arr.slice(),
+        random = [],
+        index;
+
+    while (picks && len) {
+      index = Math.floor(rng() * len);
+      random.push(collection[index]);
+      collection.splice(index, 1);
+      len -= 1;
+      picks -= 1;
+    }
+
+    return random;
+  }
+
+  return arr[Math.floor(rng() * arr.length)];
+};
+
+/**
+ * Expose
+ */
+module.exports = shuffle;
+
+},{}],231:[function(require,module,exports){
 (function (global){
 "use strict";
 
 require("setimmediate");
 
 var scsynth = require("scsynth");
+var _scsynth$Constants = scsynth.Constants;
+var UI_MOUSE_X = _scsynth$Constants.UI_MOUSE_X;
+var UI_MOUSE_Y = _scsynth$Constants.UI_MOUSE_Y;
+var UI_MOUSE_BUTTON = _scsynth$Constants.UI_MOUSE_BUTTON;
+
 
 var context = null;
 var synth = null;
@@ -15717,8 +20973,7 @@ function recvMessage(data) {
     if (data.type === "play") {
       running = true;
       if (synth === null) {
-        synth = context.createSynth(synthdef);
-        context.addToTail(synth);
+        synth = context.createSynth(synthdef).appendTo(context);
       }
       loop();
     }
@@ -15744,8 +20999,13 @@ function recvMessage(data) {
 
       synth.params.set(values);
     }
+    if (data.type === "mousestate") {
+      context.uiValues[UI_MOUSE_X] = data.value.x;
+      context.uiValues[UI_MOUSE_Y] = data.value.y;
+      context.uiValues[UI_MOUSE_BUTTON] = data.value.button;
+    }
   }
 }
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
-},{"scsynth":14,"setimmediate":185}]},{},[186]);
+},{"scsynth":14,"setimmediate":229}]},{},[231]);
