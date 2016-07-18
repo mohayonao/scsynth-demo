@@ -14,8 +14,7 @@ window.addEventListener("DOMContentLoaded", () => {
     data: {
       selected: "",
       list: [],
-      param1: 0,
-      param2: 0,
+      params: [],
       sc: "",
       json: "",
       isPlaying: false
@@ -25,8 +24,8 @@ window.addEventListener("DOMContentLoaded", () => {
         this.stop();
         fetchSynthDef(this.selected);
       },
-      changeParam() {
-        player.setParam(this.param1 / 128, this.param2 / 128);
+      changeParams() {
+        player.setParams(this.params.map(x => x.value));
       },
       play() {
         if (this.isPlaying) {
@@ -45,6 +44,23 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     }
   });
+
+  function buildParams(synthdef) {
+    const params = synthdef.paramValues.map((value) => {
+      const min = value * 0.5;
+      const max = min ? (value * 2) : 127;
+      const step = (max - min) / 128;
+      return { name: "", value, min, max, step };
+    });
+    Object.keys(synthdef.paramIndices).forEach((key) => {
+      const { index, length } = synthdef.paramIndices[key];
+
+      for (let i = index; i < index + length; i++) {
+        params[i].name = key;
+      }
+    });
+    app.params = params;
+  }
 
   const scView = window.document.getElementById("sc-view");
   const jsView = window.document.getElementById("js-view");
@@ -104,6 +120,7 @@ window.addEventListener("DOMContentLoaded", () => {
       scView.textContent = "// dropped synthdef";
       jsView.textContent = json;
       window.prettyPrint();
+      buildParams(synthdef);
       player.setSynthDef(synthdef);
       app.selected = "";
     };

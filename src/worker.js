@@ -77,7 +77,7 @@ function recvMessage(data) {
       synthdef = data.value;
       synth = null;
     }
-    if (data.type === "param" && synth) {
+    if (data.type === "params" && synth) {
       const values = Array.prototype.slice.call(data.value, 0, synth.params.length);
 
       synth.params.set(values);

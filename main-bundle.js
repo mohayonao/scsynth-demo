@@ -2766,9 +2766,9 @@ var AudioDriver = function () {
       this.worker.postMessage({ type: "synthdef", value: synthdef });
     }
   }, {
-    key: "setParam",
-    value: function setParam(param1, param2) {
-      this.worker.postMessage({ type: "param", value: [param1, param2] });
+    key: "setParams",
+    value: function setParams(params) {
+      this.worker.postMessage({ type: "params", value: params });
     }
   }, {
     key: "updateMouseState",
@@ -2805,8 +2805,7 @@ window.addEventListener("DOMContentLoaded", function () {
     data: {
       selected: "",
       list: [],
-      param1: 0,
-      param2: 0,
+      params: [],
       sc: "",
       json: "",
       isPlaying: false
@@ -2816,8 +2815,10 @@ window.addEventListener("DOMContentLoaded", function () {
         this.stop();
         fetchSynthDef(this.selected);
       },
-      changeParam: function changeParam() {
-        player.setParam(this.param1 / 128, this.param2 / 128);
+      changeParams: function changeParams() {
+        player.setParams(this.params.map(function (x) {
+          return x.value;
+        }));
       },
       play: function play() {
         if (this.isPlaying) {
@@ -2836,6 +2837,26 @@ window.addEventListener("DOMContentLoaded", function () {
       }
     }
   });
+
+  function buildParams(synthdef) {
+    var params = synthdef.paramValues.map(function (value) {
+      var min = value * 0.5;
+      var max = min ? value * 2 : 127;
+      var step = (max - min) / 128;
+      return { name: "", value: value, min: min, max: max, step: step };
+    });
+    Object.keys(synthdef.paramIndices).forEach(function (key) {
+      var _synthdef$paramIndice = synthdef.paramIndices[key];
+      var index = _synthdef$paramIndice.index;
+      var length = _synthdef$paramIndice.length;
+
+
+      for (var i = index; i < index + length; i++) {
+        params[i].name = key;
+      }
+    });
+    app.params = params;
+  }
 
   var scView = window.document.getElementById("sc-view");
   var jsView = window.document.getElementById("js-view");
@@ -2905,6 +2926,7 @@ window.addEventListener("DOMContentLoaded", function () {
       scView.textContent = "// dropped synthdef";
       jsView.textContent = json;
       window.prettyPrint();
+      buildParams(synthdef);
       player.setSynthDef(synthdef);
       app.selected = "";
     };

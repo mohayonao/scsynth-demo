@@ -81,8 +81,8 @@ class AudioDriver {
     this.worker.postMessage({ type: "synthdef", value: synthdef });
   }
 
-  setParam(param1, param2) {
-    this.worker.postMessage({ type: "param", value: [ param1, param2 ] });
+  setParams(params) {
+    this.worker.postMessage({ type: "params", value: params });
   }
 
   updateMouseState(mouseState) {
