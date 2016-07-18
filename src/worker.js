@@ -1,7 +1,5 @@
 "use strict";
 
-require("setimmediate");
-
 const scsynth = require("scsynth");
 const { UI_MOUSE_X, UI_MOUSE_Y, UI_MOUSE_BUTTON } = scsynth.Constants;
 
@@ -37,7 +35,7 @@ function loop() {
     buffers[rIndex] = null;
     rIndex = (rIndex + 1) % buffers.length;
   }
-  setImmediate(loop);
+  setTimeout(loop, 0);
 }
 
 function recvMessage(data) {

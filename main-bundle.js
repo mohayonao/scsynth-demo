@@ -2670,6 +2670,15 @@ var AudioContext = global.AudioContext || global.webkitAudioContext;
 var BUFFER_SLOTS = 16;
 var BUFFER_LENGTH = 512;
 
+function fill(buffer, value) {
+  if (buffer) {
+    for (var i = 0, imax = buffer.length; i < imax; i++) {
+      buffer[i] = value;
+    }
+  }
+  return buffer;
+}
+
 var AudioDriver = function () {
   function AudioDriver(worker) {
     var _this = this;
@@ -2713,7 +2722,7 @@ var AudioDriver = function () {
       var _this2 = this;
 
       this.buffers.forEach(function (buffer) {
-        return buffer && buffer.fill(0);
+        return fill(buffer, 0);
       });
       if (this.scp) {
         this.scp.disconnect();
@@ -2740,7 +2749,7 @@ var AudioDriver = function () {
     key: "pause",
     value: function pause() {
       this.buffers.forEach(function (buffer) {
-        return buffer && buffer.fill(0);
+        return fill(buffer, 0);
       });
       if (this.scp) {
         this.scp.disconnect();
@@ -2752,7 +2761,7 @@ var AudioDriver = function () {
     key: "stop",
     value: function stop() {
       this.buffers.forEach(function (buffer) {
-        return buffer && buffer.fill(0);
+        return fill(buffer, 0);
       });
       if (this.scp) {
         this.scp.disconnect();

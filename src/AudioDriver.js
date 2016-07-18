@@ -5,6 +5,15 @@ const AudioContext = global.AudioContext || global.webkitAudioContext;
 const BUFFER_SLOTS = 16;
 const BUFFER_LENGTH = 512;
 
+function fill(buffer, value) {
+  if (buffer) {
+    for (let i = 0, imax = buffer.length; i < imax; i++) {
+      buffer[i] = value;
+    }
+  }
+  return buffer;
+}
+
 class AudioDriver {
   constructor(worker) {
     this.worker = worker;
@@ -36,7 +45,7 @@ class AudioDriver {
   }
 
   play() {
-    this.buffers.forEach(buffer => buffer && buffer.fill(0));
+    this.buffers.forEach(buffer => fill(buffer, 0));
     if (this.scp) {
       this.scp.disconnect();
     }
@@ -60,7 +69,7 @@ class AudioDriver {
   }
 
   pause() {
-    this.buffers.forEach(buffer => buffer && buffer.fill(0));
+    this.buffers.forEach(buffer => fill(buffer, 0));
     if (this.scp) {
       this.scp.disconnect();
       this.scp = null;
@@ -69,7 +78,7 @@ class AudioDriver {
   }
 
   stop() {
-    this.buffers.forEach(buffer => buffer && buffer.fill(0));
+    this.buffers.forEach(buffer => fill(buffer, 0));
     if (this.scp) {
       this.scp.disconnect();
       this.scp = null;

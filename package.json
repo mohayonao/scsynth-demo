@@ -9,7 +9,6 @@
   "dependencies": {
     "lodash.throttle": "^4.0.1",
     "scsynth": "0.0.12",
-    "setimmediate": "^1.0.4",
     "synthdef-decoder": "^0.4.0",
     "synthdef-json-formatter": "^0.2.1"
   },
