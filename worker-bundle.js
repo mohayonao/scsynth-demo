@@ -11416,7 +11416,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
-var fillRange = require("../util/fillRange");
+var fill = require("../util/fill");
 var dspProcess = {};
 
 var SCUnitLatch = function (_SCUnit) {
@@ -11432,50 +11432,66 @@ var SCUnitLatch = function (_SCUnit) {
     key: "initialize",
     value: function initialize() {
       if (this.inputSpecs[1].rate === C.RATE_AUDIO) {
-        this.dspProcess = dspProcess["next_aa"];
+        this.dspProcess = dspProcess["aa"];
       } else {
-        this.dspProcess = dspProcess["next_ak"];
+        this.dspProcess = dspProcess["ak"];
       }
+      var level = this.inputs[0][0];
+      var trig = this.inputs[1][0];
+
       this._trig = 0;
       this._level = 0;
-      this.outputs[0][0] = this.inputs[1][0] > 0 ? this.inputs[0][0] : 0;
+
+      this.outputs[0][0] = 0 < trig ? level : 0;
     }
   }]);
 
   return SCUnitLatch;
 }(SCUnit);
 
-dspProcess["next_aa"] = function (inNumSamples) {
+dspProcess["aa"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var trigIn = this.inputs[1];
+
   var trig = this._trig;
   var level = this._level;
+
   for (var i = 0; i < inNumSamples; i++) {
-    var curTrig = trigIn[i];
-    if (trig <= 0 && curTrig > 0) {
+    var curtrig = trigIn[i];
+
+    if (trig <= 0 && 0 < curtrig) {
       level = inIn[i];
     }
+
     out[i] = level;
-    trig = curTrig;
+    trig = curtrig;
   }
+
   this._trig = trig;
   this._level = level;
 };
-dspProcess["next_ak"] = function (inNumSamples) {
+
+dspProcess["ak"] = function () {
   var out = this.outputs[0];
-  var trig = this.inputs[0][1];
+  var trig = this.inputs[1][0];
+
   var level = this._level;
-  if (this._trig <= 0 && trig > 0) {
+
+  if (this._trig <= 0 && 0 < trig) {
     level = this.inputs[0][0];
   }
-  fillRange(out, level, 0, inNumSamples);
+
+  fill(out, level);
+
   this._trig = trig;
   this._level = level;
 };
+
 SCUnitRepository.registerSCUnitClass("Latch", SCUnitLatch);
+
 module.exports = SCUnitLatch;
-},{"../Constants":3,"../SCUnit":11,"../SCUnitRepository":12,"../util/fillRange":214}],119:[function(require,module,exports){
+},{"../Constants":3,"../SCUnit":11,"../SCUnitRepository":12,"../util/fill":213}],119:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
