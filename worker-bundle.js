@@ -9237,9 +9237,7 @@ dspProcess["aii"] = function (inNumSamples) {
   var out = this.outputs[0];
   var coefs = this._coefs;
 
-  {
-    fill(out, 0);
-  }
+  this._prep(inNumSamples);
 
   for (var n = 0, nmax = this._n; n < nmax; n++) {
     var b1_0 = coefs[2];
@@ -9484,7 +9482,7 @@ dspProcess["aiii"] = function (inNumSamples) {
   var coefs = this._coefs;
   var buf = this._buf;
 
-  this._prep();
+  this._prep(inNumSamples);
 
   for (var n = 0, nmax = this._n; n < nmax; n++) {
     var k = n * 20;
