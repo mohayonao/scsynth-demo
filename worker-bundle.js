@@ -7106,6 +7106,7 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
+var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
 var dspProcess = {};
@@ -7122,14 +7123,22 @@ var SCUnitFSinOsc = function (_SCUnit) {
   _createClass(SCUnitFSinOsc, [{
     key: "initialize",
     value: function initialize(rate) {
-      this.dspProcess = dspProcess["next"];
-      this._radiansPerSample = rate.radiansPerSample;
-      this._freq = this.inputs[0][0];
+      if (this.inputSpecs[0].rate === C.RATE_SCALAR) {
+        this.dspProcess = dspProcess["ii"];
+      } else {
+        this.dspProcess = dspProcess["ki"];
+      }
+
+      var freq = this.inputs[0][0];
       var iphase = this.inputs[1][0];
-      var w = this._freq * this._radiansPerSample;
+      var w = freq * rate.radiansPerSample;
+
+      this._radiansPerSample = rate.radiansPerSample;
+      this._freq = freq;
       this._b1 = 2 * Math.cos(w);
       this._y1 = Math.sin(iphase);
       this._y2 = Math.sin(iphase - w);
+
       this.outputs[0][0] = this._y1;
     }
   }]);
@@ -7137,28 +7146,57 @@ var SCUnitFSinOsc = function (_SCUnit) {
   return SCUnitFSinOsc;
 }(SCUnit);
 
-dspProcess["next"] = function (inNumSamples) {
+dspProcess["ki"] = function (inNumSamples) {
   var out = this.outputs[0];
   var freq = this.inputs[0][0];
+
   if (freq !== this._freq) {
     this._freq = freq;
     this._b1 = 2 * Math.cos(freq * this._radiansPerSample);
   }
+
   var b1 = this._b1;
+
   var y1 = this._y1;
   var y2 = this._y2;
+
   for (var i = 0; i < inNumSamples; i++) {
     var y0 = b1 * y1 - y2;
+
     out[i] = y0;
+
     y2 = y1;
     y1 = y0;
   }
+
   this._y1 = y1;
   this._y2 = y2;
 };
+
+dspProcess["ii"] = function (inNumSamples) {
+  var out = this.outputs[0];
+  var b1 = this._b1;
+
+  var y1 = this._y1;
+  var y2 = this._y2;
+
+  for (var i = 0; i < inNumSamples; i++) {
+    var y0 = b1 * y1 - y2;
+
+    out[i] = y0;
+
+    y2 = y1;
+    y1 = y0;
+  }
+
+  this._y1 = y1;
+  this._y2 = y2;
+};
+
 SCUnitRepository.registerSCUnitClass("FSinOsc", SCUnitFSinOsc);
+
 module.exports = SCUnitFSinOsc;
-},{"../SCUnit":11,"../SCUnitRepository":12}],74:[function(require,module,exports){
+},{"../Constants":3,"../SCUnit":11,"../SCUnitRepository":12}],74:[function(require,module,exports){
 "use strict";
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
@@ -8723,6 +8761,7 @@ function _inherits(subClass, superClass) { if (typeof superClass !== "function" 
 var C = require("../Constants");
 var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
+
 var dspProcess = {};
 
 var SCUnitIn = function (_SCUnit) {
@@ -8751,12 +8790,27 @@ var SCUnitIn = function (_SCUnit) {
 }(SCUnit);
 
 dspProcess["a"] = function () {
-  this.outputs[0].set(this._buses[this.inputs[0][0] | 0]);
+  var outputs = this.outputs;
+  var buses = this._buses;
+  var firstBusChannel = this.inputs[0][0] | 0;
+
+  for (var ch = 0, chmax = outputs.length; ch < chmax; ch++) {
+    outputs[ch].set(buses[firstBusChannel + ch]);
+  }
 };
+
 dspProcess["k"] = function () {
-  this.outputs[0][0] = this._buses[this.inputs[0][0] | 0][0];
+  var outputs = this.outputs;
+  var buses = this._buses;
+  var firstBusChannel = this.inputs[0][0] | 0;
+
+  for (var ch = 0, chmax = outputs.length; ch < chmax; ch++) {
+    outputs[ch][0] = buses[firstBusChannel + ch][0];
+  }
 };
+
 SCUnitRepository.registerSCUnitClass("In", SCUnitIn);
+
 module.exports = SCUnitIn;
 },{"../Constants":3,"../SCUnit":11,"../SCUnitRepository":12}],87:[function(require,module,exports){
 "use strict";
@@ -9047,29 +9101,11 @@ var SCUnitKlang = function (_SCUnit) {
   _createClass(SCUnitKlang, [{
     key: "initialize",
     value: function initialize(rate) {
-      var numpartials = (this.inputs.length - 2) / 3;
-      var numcoefs = numpartials * 3;
-      var coefs = new Float32Array(numcoefs);
-      var inputs = this.inputs;
-      var freqscale = inputs[0][0] * rate.radiansPerSample;
-      var freqoffset = inputs[1][0] * rate.radiansPerSample;
-      var outf = 0;
-      for (var i = 0, j = 2, k = -1; i < numpartials; i++) {
-        var w = inputs[j++][0] * freqscale + freqoffset;
-        var level = inputs[j++][0];
-        var phase = inputs[j++][0];
-        if (phase !== 0) {
-          outf += coefs[++k] = level * Math.sin(phase);
-          coefs[++k] = level * Math.sin(phase - w);
-        } else {
-          outf += coefs[++k] = 0;
-          coefs[++k] = level * -Math.sin(w);
-        }
-        coefs[++k] = 2 * Math.cos(w);
-      }
-      this.dspProcess = dspProcess["next" + numpartials % 4];
-      this._coefs = coefs;
-      this._n = numpartials >> 2;
+      var outf = setCoefs(this, rate);
+
+      this._prep = dspProcess["prep" + this._numpartials % 4];
+      this.dspProcess = dspProcess["aii"];
+
       this.outputs[0][0] = outf;
     }
   }]);
@@ -9077,276 +9113,157 @@ var SCUnitKlang = function (_SCUnit) {
   return SCUnitKlang;
 }(SCUnit);
 
-dspProcess["next3"] = function (inNumSamples) {
+function setCoefs(unit, rate) {
+  var numpartials = (unit.inputs.length - 2) / 3;
+  var numcoefs = 3 * numpartials;
+  var coefs = new Float32Array(numcoefs);
+  var inputs = unit.inputs;
+  var freqscale = inputs[0][0] * rate.radiansPerSample;
+  var freqoffset = inputs[1][0] * rate.radiansPerSample;
+
+  var outf = 0;
+
+  for (var i = 0; i < numpartials; i++) {
+    var w = inputs[i * 3 + 2][0] * freqscale + freqoffset;
+    var level = inputs[i * 3 + 3][0];
+    var phase = inputs[i * 3 + 4][0];
+
+    coefs[i * 3] = level * Math.sin(phase);
+    coefs[i * 3 + 1] = level * Math.sin(phase - w);
+    coefs[i * 3 + 2] = 2 * Math.cos(w);
+
+    outf += coefs[i * 3];
+  }
+
+  unit._numpartials = numpartials;
+  unit._n = numpartials >> 2;
+  unit._coefs = coefs;
+
+  return outf;
+}
+
+dspProcess["prep3"] = function (inNumSamples) {
   var out = this.outputs[0];
   var coefs = this._coefs;
-  var y0_0 = void 0,
-      y1_0 = void 0,
-      y2_0 = void 0,
-      b1_0 = void 0;
-  var y0_1 = void 0,
-      y1_1 = void 0,
-      y2_1 = void 0,
-      b1_1 = void 0;
-  var y0_2 = void 0,
-      y1_2 = void 0,
-      y2_2 = void 0,
-      b1_2 = void 0;
-  var y0_3 = void 0,
-      y1_3 = void 0,
-      y2_3 = void 0,
-      b1_3 = void 0;
-  var outf = void 0;
-  y1_0 = coefs[0];
-  y2_0 = coefs[1];
-  b1_0 = coefs[2];
-  y1_1 = coefs[3];
-  y2_1 = coefs[4];
-  b1_1 = coefs[5];
-  y1_2 = coefs[6];
-  y2_2 = coefs[7];
-  b1_2 = coefs[8];
+  var b1_0 = coefs[2];
+  var b1_1 = coefs[5];
+  var b1_2 = coefs[8];
+
+  var y1_0 = coefs[0];
+  var y2_0 = coefs[1];
+  var y1_1 = coefs[3];
+  var y2_1 = coefs[4];
+  var y1_2 = coefs[6];
+  var y2_2 = coefs[7];
+
   for (var i = 0; i < inNumSamples; i++) {
-    outf = y0_0 = b1_0 * y1_0 - y2_0;
-    outf += y0_1 = b1_1 * y1_1 - y2_1;
-    outf += y0_2 = b1_2 * y1_2 - y2_2;
+    var y0_0 = b1_0 * y1_0 - y2_0;
+    var y0_1 = b1_1 * y1_1 - y2_1;
+    var y0_2 = b1_2 * y1_2 - y2_2;
+
+    out[i] = y0_0 + y0_1 + y0_2;
+
     y2_0 = y1_0;
     y1_0 = y0_0;
     y2_1 = y1_1;
     y1_1 = y0_1;
     y2_2 = y1_2;
     y1_2 = y0_2;
-    out[i] = outf;
   }
+
   coefs[0] = y1_0;
   coefs[1] = y2_0;
   coefs[3] = y1_1;
   coefs[4] = y2_1;
   coefs[6] = y1_2;
   coefs[7] = y2_2;
-  for (var n = 0, nmax = this._n; n < nmax; n++) {
-    y1_0 = coefs[0];
-    y2_0 = coefs[1];
-    b1_0 = coefs[2];
-    y1_1 = coefs[3];
-    y2_1 = coefs[4];
-    b1_1 = coefs[5];
-    y1_2 = coefs[6];
-    y2_2 = coefs[7];
-    b1_2 = coefs[8];
-    y1_3 = coefs[9];
-    y2_3 = coefs[10];
-    b1_3 = coefs[11];
-    for (var _i = 0; _i < inNumSamples; _i++) {
-      outf = y0_0 = b1_0 * y1_0 - y2_0;
-      outf += y0_1 = b1_1 * y1_1 - y2_1;
-      outf += y0_2 = b1_2 * y1_2 - y2_2;
-      outf += y0_3 = b1_3 * y1_3 - y2_3;
-      y2_0 = y1_0;
-      y1_0 = y0_0;
-      y2_1 = y1_1;
-      y1_1 = y0_1;
-      y2_2 = y1_2;
-      y1_2 = y0_2;
-      y2_3 = y1_3;
-      y1_3 = y0_3;
-      out[_i] += outf;
-    }
-    coefs[0] = y1_0;
-    coefs[1] = y2_0;
-    coefs[3] = y1_1;
-    coefs[4] = y2_1;
-    coefs[6] = y1_2;
-    coefs[7] = y2_2;
-    coefs[9] = y1_3;
-    coefs[10] = y2_3;
-  }
 };
-dspProcess["next2"] = function (inNumSamples) {
+
+dspProcess["prep2"] = function (inNumSamples) {
   var out = this.outputs[0];
   var coefs = this._coefs;
-  var y0_0 = void 0,
-      y1_0 = void 0,
-      y2_0 = void 0,
-      b1_0 = void 0;
-  var y0_1 = void 0,
-      y1_1 = void 0,
-      y2_1 = void 0,
-      b1_1 = void 0;
-  var y0_2 = void 0,
-      y1_2 = void 0,
-      y2_2 = void 0,
-      b1_2 = void 0;
-  var y0_3 = void 0,
-      y1_3 = void 0,
-      y2_3 = void 0,
-      b1_3 = void 0;
-  var outf = void 0;
-  y1_0 = coefs[0];
-  y2_0 = coefs[1];
-  b1_0 = coefs[2];
-  y1_1 = coefs[3];
-  y2_1 = coefs[4];
-  b1_1 = coefs[5];
+  var b1_0 = coefs[2];
+  var b1_1 = coefs[5];
+
+  var y1_0 = coefs[0];
+  var y2_0 = coefs[1];
+  var y1_1 = coefs[3];
+  var y2_1 = coefs[4];
+
   for (var i = 0; i < inNumSamples; i++) {
-    outf = y0_0 = b1_0 * y1_0 - y2_0;
-    outf += y0_1 = b1_1 * y1_1 - y2_1;
+    var y0_0 = b1_0 * y1_0 - y2_0;
+    var y0_1 = b1_1 * y1_1 - y2_1;
+
+    out[i] = y0_0 + y0_1;
+
     y2_0 = y1_0;
     y1_0 = y0_0;
     y2_1 = y1_1;
     y1_1 = y0_1;
-    out[i] = outf;
   }
+
   coefs[0] = y1_0;
   coefs[1] = y2_0;
   coefs[3] = y1_1;
   coefs[4] = y2_1;
-  for (var n = 0, nmax = this._n; n < nmax; n++) {
-    y1_0 = coefs[0];
-    y2_0 = coefs[1];
-    b1_0 = coefs[2];
-    y1_1 = coefs[3];
-    y2_1 = coefs[4];
-    b1_1 = coefs[5];
-    y1_2 = coefs[6];
-    y2_2 = coefs[7];
-    b1_2 = coefs[8];
-    y1_3 = coefs[9];
-    y2_3 = coefs[10];
-    b1_3 = coefs[11];
-    for (var _i2 = 0; _i2 < inNumSamples; _i2++) {
-      outf = y0_0 = b1_0 * y1_0 - y2_0;
-      outf += y0_1 = b1_1 * y1_1 - y2_1;
-      outf += y0_2 = b1_2 * y1_2 - y2_2;
-      outf += y0_3 = b1_3 * y1_3 - y2_3;
-      y2_0 = y1_0;
-      y1_0 = y0_0;
-      y2_1 = y1_1;
-      y1_1 = y0_1;
-      y2_2 = y1_2;
-      y1_2 = y0_2;
-      y2_3 = y1_3;
-      y1_3 = y0_3;
-      out[_i2] += outf;
-    }
-    coefs[0] = y1_0;
-    coefs[1] = y2_0;
-    coefs[3] = y1_1;
-    coefs[4] = y2_1;
-    coefs[6] = y1_2;
-    coefs[7] = y2_2;
-    coefs[9] = y1_3;
-    coefs[10] = y2_3;
-  }
 };
-dspProcess["next1"] = function (inNumSamples) {
+
+dspProcess["prep1"] = function (inNumSamples) {
   var out = this.outputs[0];
   var coefs = this._coefs;
-  var y0_0 = void 0,
-      y1_0 = void 0,
-      y2_0 = void 0,
-      b1_0 = void 0;
-  var y0_1 = void 0,
-      y1_1 = void 0,
-      y2_1 = void 0,
-      b1_1 = void 0;
-  var y0_2 = void 0,
-      y1_2 = void 0,
-      y2_2 = void 0,
-      b1_2 = void 0;
-  var y0_3 = void 0,
-      y1_3 = void 0,
-      y2_3 = void 0,
-      b1_3 = void 0;
-  var outf = void 0;
-  y1_0 = coefs[0];
-  y2_0 = coefs[1];
-  b1_0 = coefs[2];
+  var b1_0 = coefs[2];
+
+  var y1_0 = coefs[0];
+  var y2_0 = coefs[1];
+
   for (var i = 0; i < inNumSamples; i++) {
-    outf = y0_0 = b1_0 * y1_0 - y2_0;
+    var y0_0 = b1_0 * y1_0 - y2_0;
+
+    out[i] = y0_0;
+
     y2_0 = y1_0;
     y1_0 = y0_0;
-    out[i] = outf;
   }
+
   coefs[0] = y1_0;
   coefs[1] = y2_0;
-  for (var n = 0, nmax = this._n; n < nmax; n++) {
-    y1_0 = coefs[0];
-    y2_0 = coefs[1];
-    b1_0 = coefs[2];
-    y1_1 = coefs[3];
-    y2_1 = coefs[4];
-    b1_1 = coefs[5];
-    y1_2 = coefs[6];
-    y2_2 = coefs[7];
-    b1_2 = coefs[8];
-    y1_3 = coefs[9];
-    y2_3 = coefs[10];
-    b1_3 = coefs[11];
-    for (var _i3 = 0; _i3 < inNumSamples; _i3++) {
-      outf = y0_0 = b1_0 * y1_0 - y2_0;
-      outf += y0_1 = b1_1 * y1_1 - y2_1;
-      outf += y0_2 = b1_2 * y1_2 - y2_2;
-      outf += y0_3 = b1_3 * y1_3 - y2_3;
-      y2_0 = y1_0;
-      y1_0 = y0_0;
-      y2_1 = y1_1;
-      y1_1 = y0_1;
-      y2_2 = y1_2;
-      y1_2 = y0_2;
-      y2_3 = y1_3;
-      y1_3 = y0_3;
-      out[_i3] += outf;
-    }
-    coefs[0] = y1_0;
-    coefs[1] = y2_0;
-    coefs[3] = y1_1;
-    coefs[4] = y2_1;
-    coefs[6] = y1_2;
-    coefs[7] = y2_2;
-    coefs[9] = y1_3;
-    coefs[10] = y2_3;
-  }
 };
-dspProcess["next0"] = function (inNumSamples) {
+
+dspProcess["prep0"] = function () {
+  fill(this.outputs[0], 0);
+};
+
+dspProcess["aii"] = function (inNumSamples) {
   var out = this.outputs[0];
   var coefs = this._coefs;
-  var y0_0 = void 0,
-      y1_0 = void 0,
-      y2_0 = void 0,
-      b1_0 = void 0;
-  var y0_1 = void 0,
-      y1_1 = void 0,
-      y2_1 = void 0,
-      b1_1 = void 0;
-  var y0_2 = void 0,
-      y1_2 = void 0,
-      y2_2 = void 0,
-      b1_2 = void 0;
-  var y0_3 = void 0,
-      y1_3 = void 0,
-      y2_3 = void 0,
-      b1_3 = void 0;
-  var outf = void 0;
-  fill(out, 0);
+
+  {
+    fill(out, 0);
+  }
+
   for (var n = 0, nmax = this._n; n < nmax; n++) {
-    y1_0 = coefs[0];
-    y2_0 = coefs[1];
-    b1_0 = coefs[2];
-    y1_1 = coefs[3];
-    y2_1 = coefs[4];
-    b1_1 = coefs[5];
-    y1_2 = coefs[6];
-    y2_2 = coefs[7];
-    b1_2 = coefs[8];
-    y1_3 = coefs[9];
-    y2_3 = coefs[10];
-    b1_3 = coefs[11];
+    var b1_0 = coefs[2];
+    var b1_1 = coefs[5];
+    var b1_2 = coefs[8];
+    var b1_3 = coefs[11];
+
+    var y1_0 = coefs[0];
+    var y2_0 = coefs[1];
+    var y1_1 = coefs[3];
+    var y2_1 = coefs[4];
+    var y1_2 = coefs[6];
+    var y2_2 = coefs[7];
+    var y1_3 = coefs[9];
+    var y2_3 = coefs[10];
+
     for (var i = 0; i < inNumSamples; i++) {
-      outf = y0_0 = b1_0 * y1_0 - y2_0;
-      outf += y0_1 = b1_1 * y1_1 - y2_1;
-      outf += y0_2 = b1_2 * y1_2 - y2_2;
-      outf += y0_3 = b1_3 * y1_3 - y2_3;
+      var y0_0 = b1_0 * y1_0 - y2_0;
+      var y0_1 = b1_1 * y1_1 - y2_1;
+      var y0_2 = b1_2 * y1_2 - y2_2;
+      var y0_3 = b1_3 * y1_3 - y2_3;
+
+      out[i] += y0_0 + y0_1 + y0_2 + y0_3;
+
       y2_0 = y1_0;
       y1_0 = y0_0;
       y2_1 = y1_1;
@@ -9355,8 +9272,8 @@ dspProcess["next0"] = function (inNumSamples) {
       y1_2 = y0_2;
       y2_3 = y1_3;
       y1_3 = y0_3;
-      out[i] += outf;
     }
+
     coefs[0] = y1_0;
     coefs[1] = y2_0;
     coefs[3] = y1_1;
@@ -9367,7 +9284,9 @@ dspProcess["next0"] = function (inNumSamples) {
     coefs[10] = y2_3;
   }
 };
+
 SCUnitRepository.registerSCUnitClass("Klang", SCUnitKlang);
+
 module.exports = SCUnitKlang;
 },{"../SCUnit":11,"../SCUnitRepository":12,"../util/fill":213}],93:[function(require,module,exports){
 "use strict";
@@ -9384,6 +9303,8 @@ var SCUnit = require("../SCUnit");
 var SCUnitRepository = require("../SCUnitRepository");
 var fill = require("../util/fill");
 var dspProcess = {};
+
+var BYTES_PER_ELEMENT = Float32Array.BYTES_PER_ELEMENT;
 var log001 = Math.log(0.001);
 
 var SCUnitKlank = function (_SCUnit) {
@@ -9398,35 +9319,11 @@ var SCUnitKlank = function (_SCUnit) {
   _createClass(SCUnitKlank, [{
     key: "initialize",
     value: function initialize(rate) {
-      var numpartials = (this.inputs.length - 4) / 3;
-      var numcoefs = (numpartials + 3 & ~3) * 5;
-      var coefs = new Float32Array(numcoefs + this.bufferLength);
-      var buf = new Float32Array(coefs.buffer, numcoefs * 4);
-      var inputs = this.inputs;
-      var freqscale = inputs[1][0] * rate.radiansPerSample;
-      var freqoffset = inputs[2][0] * rate.radiansPerSample;
-      var decayscale = inputs[3][0];
-      var sampleRate = rate.sampleRate;
-      for (var i = 0, j = 4; i < numpartials; i++) {
-        var w = inputs[j++][0] * freqscale + freqoffset;
-        var level = inputs[j++][0];
-        var time = inputs[j++][0] * decayscale;
-        var R = time === 0 ? 0 : Math.exp(log001 / (time * sampleRate));
-        var twoR = 2 * R;
-        var R2 = R * R;
-        var cost = twoR * Math.cos(w) / (1 + R2);
-        var k = 20 * (i >> 2) + (i & 3);
-        coefs[k] = 0;
-        coefs[k + 4] = 0;
-        coefs[k + 8] = twoR * cost;
-        coefs[k + 12] = -R2;
-        coefs[k + 16] = level * 0.25;
-      }
-      this.dspProcess = dspProcess["next" + numpartials % 4];
-      this._numpartials = numpartials;
-      this._n = numpartials >> 2;
-      this._coefs = coefs;
-      this._buf = buf;
+      setCoefs(this, rate);
+
+      this._prep = dspProcess["prep" + this._numpartials % 4];
+      this.dspProcess = dspProcess["aiii"];
+
       this._x1 = 0;
       this._x2 = 0;
     }
@@ -9435,58 +9332,70 @@ var SCUnitKlank = function (_SCUnit) {
   return SCUnitKlank;
 }(SCUnit);
 
-dspProcess["next3"] = function (inNumSamples) {
-  var out = this.outputs[0];
+function setCoefs(unit, rate) {
+  var numpartials = Math.floor((unit.inputs.length - 4) / 3);
+  var numcoefs = 20 * Math.ceil(numpartials / 4);
+  var coefs = new Float32Array(numcoefs + rate.bufferLength);
+  var buf = new Float32Array(coefs.buffer, numcoefs * BYTES_PER_ELEMENT);
+  var inputs = unit.inputs;
+  var freqscale = inputs[1][0] * rate.radiansPerSample;
+  var freqoffset = inputs[2][0] * rate.radiansPerSample;
+  var decayscale = inputs[3][0];
+  var sampleRate = rate.sampleRate;
+
+  for (var i = 0, j = 4; i < numpartials; i++, j += 3) {
+    var w = inputs[j][0] * freqscale + freqoffset;
+    var level = inputs[j + 1][0];
+    var time = inputs[j + 2][0] * decayscale;
+    var R = time ? Math.exp(log001 / (time * sampleRate)) : 0;
+    var twoR = 2 * R;
+    var R2 = R * R;
+    var cost = twoR * Math.cos(w) / (1 + R2);
+    var k = 20 * (i >> 2) + (i & 3);
+
+    coefs[k] = 0;
+    coefs[k + 4] = 0;
+    coefs[k + 8] = twoR * cost;
+    coefs[k + 12] = -R2;
+    coefs[k + 16] = level * 0.25;
+  }
+
+  unit._numpartials = numpartials;
+  unit._n = numpartials >> 2;
+  unit._coefs = coefs;
+  unit._buf = buf;
+}
+
+dspProcess["prep3"] = function (inNumSamples) {
   var inIn = this.inputs[0];
   var coefs = this._coefs;
   var buf = this._buf;
-  var inf = void 0;
-  var y0_0 = void 0,
-      y1_0 = void 0,
-      y2_0 = void 0,
-      a0_0 = void 0,
-      b1_0 = void 0,
-      b2_0 = void 0;
-  var y0_1 = void 0,
-      y1_1 = void 0,
-      y2_1 = void 0,
-      a0_1 = void 0,
-      b1_1 = void 0,
-      b2_1 = void 0;
-  var y0_2 = void 0,
-      y1_2 = void 0,
-      y2_2 = void 0,
-      a0_2 = void 0,
-      b1_2 = void 0,
-      b2_2 = void 0;
-  var y0_3 = void 0,
-      y1_3 = void 0,
-      y2_3 = void 0,
-      a0_3 = void 0,
-      b1_3 = void 0,
-      b2_3 = void 0;
   var k = this._n * 20;
-  y1_0 = coefs[k + 0];
-  y2_0 = coefs[k + 4];
-  b1_0 = coefs[k + 8];
-  b2_0 = coefs[k + 12];
-  a0_0 = coefs[k + 16];
-  y1_1 = coefs[k + 1];
-  y2_1 = coefs[k + 5];
-  b1_1 = coefs[k + 9];
-  b2_1 = coefs[k + 13];
-  a0_1 = coefs[k + 17];
-  y1_2 = coefs[k + 2];
-  y2_2 = coefs[k + 6];
-  b1_2 = coefs[k + 10];
-  b2_2 = coefs[k + 14];
-  a0_2 = coefs[k + 18];
+  var b1_0 = coefs[k + 8];
+  var b2_0 = coefs[k + 12];
+  var a0_0 = coefs[k + 16];
+  var b1_1 = coefs[k + 9];
+  var b2_1 = coefs[k + 13];
+  var a0_1 = coefs[k + 17];
+  var b1_2 = coefs[k + 10];
+  var b2_2 = coefs[k + 14];
+  var a0_2 = coefs[k + 18];
+
+  var y1_0 = coefs[k + 0];
+  var y2_0 = coefs[k + 4];
+  var y1_1 = coefs[k + 1];
+  var y2_1 = coefs[k + 5];
+  var y1_2 = coefs[k + 2];
+  var y2_2 = coefs[k + 6];
+
   for (var i = 0; i < inNumSamples; i++) {
-    inf = inIn[i];
-    y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
-    y0_1 = inf + b1_1 * y1_1 + b2_1 * y2_1;
-    y0_2 = inf + b1_2 * y1_2 + b2_2 * y2_2;
+    var inf = inIn[i];
+    var y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
+    var y0_1 = inf + b1_1 * y1_1 + b2_1 * y2_1;
+    var y0_2 = inf + b1_2 * y1_2 + b2_2 * y2_2;
+
     buf[i] = a0_0 * y0_0 + a0_1 * y0_1 + a0_2 * y0_2;
+
     y2_0 = y1_0;
     y1_0 = y0_0;
     y2_1 = y1_1;
@@ -9494,346 +9403,122 @@ dspProcess["next3"] = function (inNumSamples) {
     y2_2 = y1_2;
     y1_2 = y0_2;
   }
+
   coefs[k + 0] = y1_0;
   coefs[k + 4] = y2_0;
   coefs[k + 1] = y1_1;
   coefs[k + 5] = y2_1;
   coefs[k + 2] = y1_2;
   coefs[k + 6] = y2_2;
-  for (var n = 0, nmax = this._n; n < nmax; n++) {
-    y1_0 = coefs[k + 0];
-    y2_0 = coefs[k + 4];
-    b1_0 = coefs[k + 8];
-    b2_0 = coefs[k + 12];
-    a0_0 = coefs[k + 16];
-    y1_1 = coefs[k + 1];
-    y2_1 = coefs[k + 5];
-    b1_1 = coefs[k + 9];
-    b2_1 = coefs[k + 13];
-    a0_1 = coefs[k + 17];
-    y1_2 = coefs[k + 2];
-    y2_2 = coefs[k + 6];
-    b1_2 = coefs[k + 10];
-    b2_2 = coefs[k + 14];
-    a0_2 = coefs[k + 18];
-    y1_3 = coefs[k + 3];
-    y2_3 = coefs[k + 7];
-    b1_3 = coefs[k + 11];
-    b2_3 = coefs[k + 15];
-    a0_3 = coefs[k + 19];
-    for (var _i = 0; _i < inNumSamples; _i++) {
-      inf = inIn[_i];
-      y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
-      y0_1 = inf + b1_1 * y1_1 + b2_1 * y2_1;
-      y0_2 = inf + b1_2 * y1_2 + b2_2 * y2_2;
-      y0_3 = inf + b1_3 * y1_3 + b2_3 * y2_3;
-      buf[_i] += a0_0 * y0_0 + a0_1 * y0_1 + a0_2 * y0_2 + a0_3 * y0_3;
-      y2_0 = y1_0;
-      y1_0 = y0_0;
-      y2_1 = y1_1;
-      y1_1 = y0_1;
-      y2_2 = y1_2;
-      y1_2 = y0_2;
-      y2_3 = y1_3;
-      y1_3 = y0_3;
-    }
-    coefs[k + 0] = y1_0;
-    coefs[k + 4] = y2_0;
-    coefs[k + 1] = y1_1;
-    coefs[k + 5] = y2_1;
-    coefs[k + 2] = y1_2;
-    coefs[k + 6] = y2_2;
-    coefs[k + 3] = y1_3;
-    coefs[k + 7] = y2_3;
-    k += 20;
-  }
-  var x1 = this._x1;
-  var x2 = this._x2;
-  for (var _i2 = 0; _i2 < inNumSamples; _i2++) {
-    var x0 = buf[_i2];
-    out[_i2] = x0 - x2;
-    x2 = x1;
-    x1 = x0;
-  }
-  this._x1 = x1;
-  this._x2 = x2;
 };
-dspProcess["next2"] = function (inNumSamples) {
-  var out = this.outputs[0];
+
+dspProcess["prep2"] = function (inNumSamples) {
   var inIn = this.inputs[0];
   var coefs = this._coefs;
   var buf = this._buf;
-  var inf = void 0;
-  var y0_0 = void 0,
-      y1_0 = void 0,
-      y2_0 = void 0,
-      a0_0 = void 0,
-      b1_0 = void 0,
-      b2_0 = void 0;
-  var y0_1 = void 0,
-      y1_1 = void 0,
-      y2_1 = void 0,
-      a0_1 = void 0,
-      b1_1 = void 0,
-      b2_1 = void 0;
-  var y0_2 = void 0,
-      y1_2 = void 0,
-      y2_2 = void 0,
-      a0_2 = void 0,
-      b1_2 = void 0,
-      b2_2 = void 0;
-  var y0_3 = void 0,
-      y1_3 = void 0,
-      y2_3 = void 0,
-      a0_3 = void 0,
-      b1_3 = void 0,
-      b2_3 = void 0;
   var k = this._n * 20;
-  y1_0 = coefs[k + 0];
-  y2_0 = coefs[k + 4];
-  b1_0 = coefs[k + 8];
-  b2_0 = coefs[k + 12];
-  a0_0 = coefs[k + 16];
-  y1_1 = coefs[k + 1];
-  y2_1 = coefs[k + 5];
-  b1_1 = coefs[k + 9];
-  b2_1 = coefs[k + 13];
-  a0_1 = coefs[k + 17];
+  var b1_0 = coefs[k + 8];
+  var b2_0 = coefs[k + 12];
+  var a0_0 = coefs[k + 16];
+  var b1_1 = coefs[k + 9];
+  var b2_1 = coefs[k + 13];
+  var a0_1 = coefs[k + 17];
+
+  var y1_0 = coefs[k + 0];
+  var y2_0 = coefs[k + 4];
+  var y1_1 = coefs[k + 1];
+  var y2_1 = coefs[k + 5];
+
   for (var i = 0; i < inNumSamples; i++) {
-    inf = inIn[i];
-    y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
-    y0_1 = inf + b1_1 * y1_1 + b2_1 * y2_1;
+    var inf = inIn[i];
+    var y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
+    var y0_1 = inf + b1_1 * y1_1 + b2_1 * y2_1;
+
     buf[i] = a0_0 * y0_0 + a0_1 * y0_1;
+
     y2_0 = y1_0;
     y1_0 = y0_0;
     y2_1 = y1_1;
     y1_1 = y0_1;
   }
+
   coefs[k + 0] = y1_0;
   coefs[k + 4] = y2_0;
   coefs[k + 1] = y1_1;
   coefs[k + 5] = y2_1;
-  for (var n = 0, nmax = this._n; n < nmax; n++) {
-    y1_0 = coefs[k + 0];
-    y2_0 = coefs[k + 4];
-    b1_0 = coefs[k + 8];
-    b2_0 = coefs[k + 12];
-    a0_0 = coefs[k + 16];
-    y1_1 = coefs[k + 1];
-    y2_1 = coefs[k + 5];
-    b1_1 = coefs[k + 9];
-    b2_1 = coefs[k + 13];
-    a0_1 = coefs[k + 17];
-    y1_2 = coefs[k + 2];
-    y2_2 = coefs[k + 6];
-    b1_2 = coefs[k + 10];
-    b2_2 = coefs[k + 14];
-    a0_2 = coefs[k + 18];
-    y1_3 = coefs[k + 3];
-    y2_3 = coefs[k + 7];
-    b1_3 = coefs[k + 11];
-    b2_3 = coefs[k + 15];
-    a0_3 = coefs[k + 19];
-    for (var _i3 = 0; _i3 < inNumSamples; _i3++) {
-      inf = inIn[_i3];
-      y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
-      y0_1 = inf + b1_1 * y1_1 + b2_1 * y2_1;
-      y0_2 = inf + b1_2 * y1_2 + b2_2 * y2_2;
-      y0_3 = inf + b1_3 * y1_3 + b2_3 * y2_3;
-      buf[_i3] += a0_0 * y0_0 + a0_1 * y0_1 + a0_2 * y0_2 + a0_3 * y0_3;
-      y2_0 = y1_0;
-      y1_0 = y0_0;
-      y2_1 = y1_1;
-      y1_1 = y0_1;
-      y2_2 = y1_2;
-      y1_2 = y0_2;
-      y2_3 = y1_3;
-      y1_3 = y0_3;
-    }
-    coefs[k + 0] = y1_0;
-    coefs[k + 4] = y2_0;
-    coefs[k + 1] = y1_1;
-    coefs[k + 5] = y2_1;
-    coefs[k + 2] = y1_2;
-    coefs[k + 6] = y2_2;
-    coefs[k + 3] = y1_3;
-    coefs[k + 7] = y2_3;
-    k += 20;
-  }
-  var x1 = this._x1;
-  var x2 = this._x2;
-  for (var _i4 = 0; _i4 < inNumSamples; _i4++) {
-    var x0 = buf[_i4];
-    out[_i4] = x0 - x2;
-    x2 = x1;
-    x1 = x0;
-  }
-  this._x1 = x1;
-  this._x2 = x2;
 };
-dspProcess["next1"] = function (inNumSamples) {
-  var out = this.outputs[0];
+
+dspProcess["prep1"] = function (inNumSamples) {
   var inIn = this.inputs[0];
   var coefs = this._coefs;
   var buf = this._buf;
-  var inf = void 0;
-  var y0_0 = void 0,
-      y1_0 = void 0,
-      y2_0 = void 0,
-      a0_0 = void 0,
-      b1_0 = void 0,
-      b2_0 = void 0;
-  var y0_1 = void 0,
-      y1_1 = void 0,
-      y2_1 = void 0,
-      a0_1 = void 0,
-      b1_1 = void 0,
-      b2_1 = void 0;
-  var y0_2 = void 0,
-      y1_2 = void 0,
-      y2_2 = void 0,
-      a0_2 = void 0,
-      b1_2 = void 0,
-      b2_2 = void 0;
-  var y0_3 = void 0,
-      y1_3 = void 0,
-      y2_3 = void 0,
-      a0_3 = void 0,
-      b1_3 = void 0,
-      b2_3 = void 0;
   var k = this._n * 20;
-  y1_0 = coefs[k + 0];
-  y2_0 = coefs[k + 4];
-  b1_0 = coefs[k + 8];
-  b2_0 = coefs[k + 12];
-  a0_0 = coefs[k + 16];
+  var b1_0 = coefs[k + 8];
+  var b2_0 = coefs[k + 12];
+  var a0_0 = coefs[k + 16];
+
+  var y1_0 = coefs[k + 0];
+  var y2_0 = coefs[k + 4];
+
   for (var i = 0; i < inNumSamples; i++) {
-    inf = inIn[i];
-    y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
+    var inf = inIn[i];
+    var y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
+
     buf[i] = a0_0 * y0_0;
+
     y2_0 = y1_0;
     y1_0 = y0_0;
   }
+
   coefs[k + 0] = y1_0;
   coefs[k + 4] = y2_0;
-  for (var n = 0, nmax = this._n; n < nmax; n++) {
-    y1_0 = coefs[k + 0];
-    y2_0 = coefs[k + 4];
-    b1_0 = coefs[k + 8];
-    b2_0 = coefs[k + 12];
-    a0_0 = coefs[k + 16];
-    y1_1 = coefs[k + 1];
-    y2_1 = coefs[k + 5];
-    b1_1 = coefs[k + 9];
-    b2_1 = coefs[k + 13];
-    a0_1 = coefs[k + 17];
-    y1_2 = coefs[k + 2];
-    y2_2 = coefs[k + 6];
-    b1_2 = coefs[k + 10];
-    b2_2 = coefs[k + 14];
-    a0_2 = coefs[k + 18];
-    y1_3 = coefs[k + 3];
-    y2_3 = coefs[k + 7];
-    b1_3 = coefs[k + 11];
-    b2_3 = coefs[k + 15];
-    a0_3 = coefs[k + 19];
-    for (var _i5 = 0; _i5 < inNumSamples; _i5++) {
-      inf = inIn[_i5];
-      y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
-      y0_1 = inf + b1_1 * y1_1 + b2_1 * y2_1;
-      y0_2 = inf + b1_2 * y1_2 + b2_2 * y2_2;
-      y0_3 = inf + b1_3 * y1_3 + b2_3 * y2_3;
-      buf[_i5] += a0_0 * y0_0 + a0_1 * y0_1 + a0_2 * y0_2 + a0_3 * y0_3;
-      y2_0 = y1_0;
-      y1_0 = y0_0;
-      y2_1 = y1_1;
-      y1_1 = y0_1;
-      y2_2 = y1_2;
-      y1_2 = y0_2;
-      y2_3 = y1_3;
-      y1_3 = y0_3;
-    }
-    coefs[k + 0] = y1_0;
-    coefs[k + 4] = y2_0;
-    coefs[k + 1] = y1_1;
-    coefs[k + 5] = y2_1;
-    coefs[k + 2] = y1_2;
-    coefs[k + 6] = y2_2;
-    coefs[k + 3] = y1_3;
-    coefs[k + 7] = y2_3;
-    k += 20;
-  }
-  var x1 = this._x1;
-  var x2 = this._x2;
-  for (var _i6 = 0; _i6 < inNumSamples; _i6++) {
-    var x0 = buf[_i6];
-    out[_i6] = x0 - x2;
-    x2 = x1;
-    x1 = x0;
-  }
-  this._x1 = x1;
-  this._x2 = x2;
 };
-dspProcess["next0"] = function (inNumSamples) {
+
+dspProcess["prep0"] = function () {
+  fill(this._buf, 0);
+};
+
+dspProcess["aiii"] = function (inNumSamples) {
   var out = this.outputs[0];
   var inIn = this.inputs[0];
   var coefs = this._coefs;
   var buf = this._buf;
-  var inf = void 0;
-  var y0_0 = void 0,
-      y1_0 = void 0,
-      y2_0 = void 0,
-      a0_0 = void 0,
-      b1_0 = void 0,
-      b2_0 = void 0;
-  var y0_1 = void 0,
-      y1_1 = void 0,
-      y2_1 = void 0,
-      a0_1 = void 0,
-      b1_1 = void 0,
-      b2_1 = void 0;
-  var y0_2 = void 0,
-      y1_2 = void 0,
-      y2_2 = void 0,
-      a0_2 = void 0,
-      b1_2 = void 0,
-      b2_2 = void 0;
-  var y0_3 = void 0,
-      y1_3 = void 0,
-      y2_3 = void 0,
-      a0_3 = void 0,
-      b1_3 = void 0,
-      b2_3 = void 0;
-  var k = this._n * 20;
-  fill(buf, 0);
+
+  this._prep();
+
   for (var n = 0, nmax = this._n; n < nmax; n++) {
-    y1_0 = coefs[k + 0];
-    y2_0 = coefs[k + 4];
-    b1_0 = coefs[k + 8];
-    b2_0 = coefs[k + 12];
-    a0_0 = coefs[k + 16];
-    y1_1 = coefs[k + 1];
-    y2_1 = coefs[k + 5];
-    b1_1 = coefs[k + 9];
-    b2_1 = coefs[k + 13];
-    a0_1 = coefs[k + 17];
-    y1_2 = coefs[k + 2];
-    y2_2 = coefs[k + 6];
-    b1_2 = coefs[k + 10];
-    b2_2 = coefs[k + 14];
-    a0_2 = coefs[k + 18];
-    y1_3 = coefs[k + 3];
-    y2_3 = coefs[k + 7];
-    b1_3 = coefs[k + 11];
-    b2_3 = coefs[k + 15];
-    a0_3 = coefs[k + 19];
+    var k = n * 20;
+    var b1_0 = coefs[k + 8];
+    var b2_0 = coefs[k + 12];
+    var a0_0 = coefs[k + 16];
+    var b1_1 = coefs[k + 9];
+    var b2_1 = coefs[k + 13];
+    var a0_1 = coefs[k + 17];
+    var b1_2 = coefs[k + 10];
+    var b2_2 = coefs[k + 14];
+    var a0_2 = coefs[k + 18];
+    var b1_3 = coefs[k + 11];
+    var b2_3 = coefs[k + 15];
+    var a0_3 = coefs[k + 19];
+
+    var y1_0 = coefs[k + 0];
+    var y2_0 = coefs[k + 4];
+    var y1_1 = coefs[k + 1];
+    var y2_1 = coefs[k + 5];
+    var y1_2 = coefs[k + 2];
+    var y2_2 = coefs[k + 6];
+    var y1_3 = coefs[k + 3];
+    var y2_3 = coefs[k + 7];
+
     for (var i = 0; i < inNumSamples; i++) {
-      inf = inIn[i];
-      y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
-      y0_1 = inf + b1_1 * y1_1 + b2_1 * y2_1;
-      y0_2 = inf + b1_2 * y1_2 + b2_2 * y2_2;
-      y0_3 = inf + b1_3 * y1_3 + b2_3 * y2_3;
+      var inf = inIn[i];
+      var y0_0 = inf + b1_0 * y1_0 + b2_0 * y2_0;
+      var y0_1 = inf + b1_1 * y1_1 + b2_1 * y2_1;
+      var y0_2 = inf + b1_2 * y1_2 + b2_2 * y2_2;
+      var y0_3 = inf + b1_3 * y1_3 + b2_3 * y2_3;
+
       buf[i] += a0_0 * y0_0 + a0_1 * y0_1 + a0_2 * y0_2 + a0_3 * y0_3;
+
       y2_0 = y1_0;
       y1_0 = y0_0;
       y2_1 = y1_1;
@@ -9843,6 +9528,7 @@ dspProcess["next0"] = function (inNumSamples) {
       y2_3 = y1_3;
       y1_3 = y0_3;
     }
+
     coefs[k + 0] = y1_0;
     coefs[k + 4] = y2_0;
     coefs[k + 1] = y1_1;
@@ -9851,20 +9537,26 @@ dspProcess["next0"] = function (inNumSamples) {
     coefs[k + 6] = y2_2;
     coefs[k + 3] = y1_3;
     coefs[k + 7] = y2_3;
-    k += 20;
   }
+
   var x1 = this._x1;
   var x2 = this._x2;
-  for (var _i7 = 0; _i7 < inNumSamples; _i7++) {
-    var x0 = buf[_i7];
-    out[_i7] = x0 - x2;
+
+  for (var _i = 0; _i < inNumSamples; _i++) {
+    var x0 = buf[_i];
+
+    out[_i] = x0 - x2;
+
     x2 = x1;
     x1 = x0;
   }
+
   this._x1 = x1;
   this._x2 = x2;
 };
+
 SCUnitRepository.registerSCUnitClass("Klank", SCUnitKlank);
+
 module.exports = SCUnitKlank;
 },{"../SCUnit":11,"../SCUnitRepository":12,"../util/fill":213}],94:[function(require,module,exports){
 "use strict";
