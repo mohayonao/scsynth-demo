@@ -9114,7 +9114,7 @@ var SCUnitKlang = function (_SCUnit) {
 }(SCUnit);
 
 function setCoefs(unit, rate) {
-  var numpartials = (unit.inputs.length - 2) / 3;
+  var numpartials = Math.floor((unit.inputs.length - 2) / 3);
   var numcoefs = 3 * numpartials;
   var coefs = new Float32Array(numcoefs);
   var inputs = unit.inputs;
@@ -9240,19 +9240,20 @@ dspProcess["aii"] = function (inNumSamples) {
   this._prep(inNumSamples);
 
   for (var n = 0, nmax = this._n; n < nmax; n++) {
-    var b1_0 = coefs[2];
-    var b1_1 = coefs[5];
-    var b1_2 = coefs[8];
-    var b1_3 = coefs[11];
+    var k = n * 12;
+    var b1_0 = coefs[k + 2];
+    var b1_1 = coefs[k + 5];
+    var b1_2 = coefs[k + 8];
+    var b1_3 = coefs[k + 11];
 
-    var y1_0 = coefs[0];
-    var y2_0 = coefs[1];
-    var y1_1 = coefs[3];
-    var y2_1 = coefs[4];
-    var y1_2 = coefs[6];
-    var y2_2 = coefs[7];
-    var y1_3 = coefs[9];
-    var y2_3 = coefs[10];
+    var y1_0 = coefs[k + 0];
+    var y2_0 = coefs[k + 1];
+    var y1_1 = coefs[k + 3];
+    var y2_1 = coefs[k + 4];
+    var y1_2 = coefs[k + 6];
+    var y2_2 = coefs[k + 7];
+    var y1_3 = coefs[k + 9];
+    var y2_3 = coefs[k + 10];
 
     for (var i = 0; i < inNumSamples; i++) {
       var y0_0 = b1_0 * y1_0 - y2_0;
@@ -9272,14 +9273,14 @@ dspProcess["aii"] = function (inNumSamples) {
       y1_3 = y0_3;
     }
 
-    coefs[0] = y1_0;
-    coefs[1] = y2_0;
-    coefs[3] = y1_1;
-    coefs[4] = y2_1;
-    coefs[6] = y1_2;
-    coefs[7] = y2_2;
-    coefs[9] = y1_3;
-    coefs[10] = y2_3;
+    coefs[k + 0] = y1_0;
+    coefs[k + 1] = y2_0;
+    coefs[k + 3] = y1_1;
+    coefs[k + 4] = y2_1;
+    coefs[k + 6] = y1_2;
+    coefs[k + 7] = y2_2;
+    coefs[k + 9] = y1_3;
+    coefs[k + 10] = y2_3;
   }
 };
 
